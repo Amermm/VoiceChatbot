@@ -1,0 +1,14 @@
+# Ignore environment files and keys
+.env
+*.json
+*.xlsx
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore virtual environment
+myenv/
+
+# Ignore log files
+*.log
