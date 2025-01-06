@@ -12,46 +12,53 @@ import logging
 import numpy as np
 import pyttsx3
 
+
 class VoiceChatBot:
-    def __init__(self, config_path='VCB_Config.xlsx'):
+    def __init__(self):
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
-        
-        # Load configuration
-        self.config = self._load_config(config_path)
+
+        # Load configuration from environment variables
         self.setup_environment()
-        
+
         # Audio settings
         self.RATE = 16000
         self.CHUNK = 1024  # Smaller chunk size for faster processing
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
-        
+
         # Initialize components
         self.df = self._load_excel_data()
         self.speech_client = speech.SpeechClient()
-        
+
         # Streaming components
         self.is_listening = False
         self.audio_queue = queue.Queue()
         self.p = None
         self.stream = None
 
-    def _load_config(self, config_path):
-        try:
-            config = pd.read_excel(config_path, index_col=0, header=None).iloc[:, 0].to_dict()
-            return config
-        except Exception as e:
-            self.logger.error(f"Error loading config: {e}")
-            return {}
-
     def setup_environment(self):
-        openai.api_key = self.config.get('OpenAI_key')
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.config.get('GoogleSST_Key_path', '')
+        """Load environment variables."""
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        self.google_credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
+
+        # Set API keys
+        openai.api_key = self.openai_api_key
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_credentials_path
+
+        # Check for missing configurations
+        if not self.openai_api_key:
+            self.logger.error("OPENAI_API_KEY is not set in environment variables.")
+        if not self.google_credentials_path or not os.path.exists(self.google_credentials_path):
+            self.logger.error("GOOGLE_APPLICATION_CREDENTIALS is not set or file does not exist.")
+        if not self.database_excel_path or not os.path.exists(self.database_excel_path):
+            self.logger.error("DATABASE_EXCEL_PATH is not set or file does not exist.")
 
     def _load_excel_data(self):
+        """Load data from the Excel file."""
         try:
-            df = pd.read_excel(self.config.get('DatabaseExcel_path'))
+            df = pd.read_excel(self.database_excel_path)
             for column in df.columns:
                 if df[column].dtype in ['float64', 'int64']:
                     df[column] = df[column].fillna(0)
@@ -64,6 +71,7 @@ class VoiceChatBot:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
+    # Other methods remain unchanged
     def audio_callback(self, in_data, frame_count, time_info, status):
         if self.is_listening:
             self.audio_queue.put(in_data)
