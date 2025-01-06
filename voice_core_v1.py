@@ -40,7 +40,7 @@ class VoiceChatBot:
     def setup_environment(self):
         """Load environment variables."""
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        self.google_credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        self.google_credentials_path = os.getenv('GoogleSST_Key_path')
         self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
 
         # Set API keys
