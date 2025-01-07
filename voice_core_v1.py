@@ -39,30 +39,24 @@ class VoiceChatBot:
 
     def setup_environment(self):
         """Load environment variables."""
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        self.google_credentials_content = os.getenv('GoogleSST_Key_path')  # Get JSON content directly
-        self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
+        self.openai_api_key = os.getenv('OPENAI_KEY')  # Match the secret name
+        self.google_credentials_path = os.getenv('GOOGLESST_KEY_PATH')  # Match the secret name
+        self.database_excel_path = os.getenv('DATABASEEXCEL_PATH')  # Match the secret name
 
         # Set API keys
         openai.api_key = self.openai_api_key
 
-        # Write Google credentials to a temporary file
-        if self.google_credentials_content:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
-            with open(temp_file.name, 'w') as f:
-                f.write(self.google_credentials_content)
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_file.name
-        else:
+        # Check if the Google credentials file exists
+        if not self.google_credentials_path:
             self.logger.error("GoogleSST_Key_path is not set in environment variables or is empty.")
+        else:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_credentials_path
 
-        # Check for missing configurations
+        # Check other environment variables
         if not self.openai_api_key:
-            self.logger.error("OPENAI_API_KEY is not set in environment variables.")
-        if not os.path.exists(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")):
-            self.logger.error("Google credentials file could not be created.")
+            self.logger.error("OPENAI_KEY is not set in environment variables.")
         if not self.database_excel_path or not os.path.exists(self.database_excel_path):
-            self.logger.error("DATABASE_EXCEL_PATH is not set or file does not exist.")
-
+            self.logger.error("DATABASEEXCEL_PATH is not set or file does not exist.")
 
     def _load_excel_data(self):
         """Load data from the Excel file."""
