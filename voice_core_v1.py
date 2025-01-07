@@ -139,17 +139,17 @@ class VoiceChatBot:
 
     def get_gpt_response(self, query):
         try:
-            response = openai.ChatCompletion.create(
+            response = openai.chat.completions.create(  # Updated syntax
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a helpful data assistant. Provide concise responses."},
                     {"role": "system", "content": f"Context data:\n{self.context_data}"},
                     {"role": "user", "content": query}
                 ],
-                max_tokens=100,  # Reduced for faster response
+                max_tokens=100,
                 temperature=0
             )
-            return response.choices[0].message['content'].strip()
+            return response.choices[0].message.content.strip()
         except Exception as e:
             self.logger.error(f"GPT Error: {e}")
             return "Sorry, I couldn't process your request."
