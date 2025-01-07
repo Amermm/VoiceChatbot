@@ -29,7 +29,4 @@ def stream():
     return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    # Use the port provided by Render's environment, defaulting to 5000 locally
-    port = int(os.environ.get('PORT', 5000))
-    # Bind to 0.0.0.0 to ensure the app is accessible in Render's environment
-    app.run(host='0.0.0.0', port=port, threaded=True)
+    app.run(host='0.0.0.0', port=8080, threaded=True)

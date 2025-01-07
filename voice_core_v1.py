@@ -12,6 +12,9 @@ import logging
 import numpy as np
 import pyttsx3
 import tempfile
+import json
+import os
+
 
 class VoiceChatBot:
     def __init__(self):
@@ -39,24 +42,19 @@ class VoiceChatBot:
 
     def setup_environment(self):
         """Load environment variables."""
-        self.openai_api_key = os.getenv('OPENAI_KEY')  # Match the secret name
-        self.google_credentials_path = os.getenv('GOOGLESST_KEY_PATH')  # Match the secret name
-        self.database_excel_path = os.getenv('DATABASEEXCEL_PATH')  # Match the secret name
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
+        self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
+
+        # Add this block here
+        if google_creds_json:
+            temp_creds_path = '/tmp/google_creds_temp.json'
+            with open(temp_creds_path, 'w') as f:
+                f.write(google_creds_json)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
 
         # Set API keys
         openai.api_key = self.openai_api_key
-
-        # Check if the Google credentials file exists
-        if not self.google_credentials_path:
-            self.logger.error("GoogleSST_Key_path is not set in environment variables or is empty.")
-        else:
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_credentials_path
-
-        # Check other environment variables
-        if not self.openai_api_key:
-            self.logger.error("OPENAI_KEY is not set in environment variables.")
-        if not self.database_excel_path or not os.path.exists(self.database_excel_path):
-            self.logger.error("DATABASEEXCEL_PATH is not set or file does not exist.")
 
     def _load_excel_data(self):
         """Load data from the Excel file."""

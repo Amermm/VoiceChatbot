@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: voicechatbot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_ui:app
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_CREDENTIALS
+        sync: false
+      - key: DATABASE_EXCEL_PATH
+        value: /opt/render/project/src/data/database.xlsx
+      - key: ROBOTNAME
+        value: Royal
