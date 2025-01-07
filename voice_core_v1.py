@@ -11,7 +11,7 @@ from datetime import datetime
 import logging
 import numpy as np
 import pyttsx3
-
+import tempfile
 
 class VoiceChatBot:
     def __init__(self):
@@ -40,20 +40,29 @@ class VoiceChatBot:
     def setup_environment(self):
         """Load environment variables."""
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        self.google_credentials_path = os.getenv('GoogleSST_Key_path')
+        self.google_credentials_content = os.getenv('GoogleSST_Key_path')  # Get JSON content directly
         self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
 
         # Set API keys
         openai.api_key = self.openai_api_key
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_credentials_path
+
+        # Write Google credentials to a temporary file
+        if self.google_credentials_content:
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+            with open(temp_file.name, 'w') as f:
+                f.write(self.google_credentials_content)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_file.name
+        else:
+            self.logger.error("GoogleSST_Key_path is not set in environment variables or is empty.")
 
         # Check for missing configurations
         if not self.openai_api_key:
             self.logger.error("OPENAI_API_KEY is not set in environment variables.")
-        if not self.google_credentials_path or not os.path.exists(self.google_credentials_path):
-            self.logger.error("GOOGLE_APPLICATION_CREDENTIALS is not set or file does not exist.")
+        if not os.path.exists(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")):
+            self.logger.error("Google credentials file could not be created.")
         if not self.database_excel_path or not os.path.exists(self.database_excel_path):
             self.logger.error("DATABASE_EXCEL_PATH is not set or file does not exist.")
+
 
     def _load_excel_data(self):
         """Load data from the Excel file."""
