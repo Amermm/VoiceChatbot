@@ -1,8 +1,4 @@
-# Remove existing file
-rm requirements.txt
-
-# Create new one
-echo "Flask
+Flask
 openai
 pandas
 numpy
@@ -20,4 +16,4 @@ python-dateutil
 pytz
 tzdata
 sniffio
-tqdm" > requirements.txt
+tqdm
