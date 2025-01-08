@@ -59,75 +59,75 @@ class VoiceChatBot:
         self.logger.info("Stopped listening")
         return {"status": "stopped"}
 
-def process_audio_data(self, audio_data):
-    """Process audio data from client"""
-    try:
-        self.logger.info("Starting audio processing")
-        if not audio_data:
-            self.logger.error("No audio data received")
-            return None
-            
-        # Decode base64 audio data
+    def process_audio_data(self, audio_data):
+        """Process audio data from client"""
         try:
-            decoded_audio = base64.b64decode(audio_data.split(',')[1])
-            self.logger.info(f"Audio data decoded, size: {len(decoded_audio)}")
-            
-            # Skip processing if audio is too small
-            if len(decoded_audio) < 10000:  # Skip very short audio
-                self.logger.info("Audio chunk too small, skipping")
+            self.logger.info("Starting audio processing")
+            if not audio_data:
+                self.logger.error("No audio data received")
                 return None
                 
-        except Exception as e:
-            self.logger.error(f"Error decoding audio: {e}")
-            return None
-
-        # Configure speech recognition
-        audio = speech.RecognitionAudio(content=decoded_audio)
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-            sample_rate_hertz=48000,
-            language_code="en-US",
-            enable_automatic_punctuation=True,
-            model="default",
-            use_enhanced=True,
-            enable_word_time_offsets=True,  # Get timing information
-            speech_contexts=[{
-                "phrases": ["Royal", "help", "question", "thanks"],
-                "boost": 20.0
-            }]
-        )
-
-        # Process with Google Speech-to-Text
-        try:
-            self.logger.info("Sending request to Google Speech-to-Text")
-            response = self.speech_client.recognize(config=config, audio=audio)
-            self.logger.info(f"Received response from Google Speech-to-Text: {response}")
-            
-            if not response.results:
-                self.logger.warning("No transcription results")
+            # Decode base64 audio data
+            try:
+                decoded_audio = base64.b64decode(audio_data.split(',')[1])
+                self.logger.info(f"Audio data decoded, size: {len(decoded_audio)}")
+                
+                # Skip processing if audio is too small
+                if len(decoded_audio) < 10000:  # Skip very short audio
+                    self.logger.info("Audio chunk too small, skipping")
+                    return None
+                    
+            except Exception as e:
+                self.logger.error(f"Error decoding audio: {e}")
                 return None
 
-            transcript = response.results[0].alternatives[0].transcript
-            confidence = response.results[0].alternatives[0].confidence
+            # Configure speech recognition
+            audio = speech.RecognitionAudio(content=decoded_audio)
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+                sample_rate_hertz=48000,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+                model="default",
+                use_enhanced=True,
+                enable_word_time_offsets=True,  # Get timing information
+                speech_contexts=[{
+                    "phrases": ["Royal", "help", "question", "thanks"],
+                    "boost": 20.0
+                }]
+            )
 
-            # Only process if confidence is high enough
-            if confidence < 0.6:
-                self.logger.warning(f"Low confidence ({confidence}), skipping")
+            # Process with Google Speech-to-Text
+            try:
+                self.logger.info("Sending request to Google Speech-to-Text")
+                response = self.speech_client.recognize(config=config, audio=audio)
+                self.logger.info(f"Received response from Google Speech-to-Text: {response}")
+                
+                if not response.results:
+                    self.logger.warning("No transcription results")
+                    return None
+
+                transcript = response.results[0].alternatives[0].transcript
+                confidence = response.results[0].alternatives[0].confidence
+
+                # Only process if confidence is high enough
+                if confidence < 0.6:
+                    self.logger.warning(f"Low confidence ({confidence}), skipping")
+                    return None
+
+                self.logger.info(f"Transcribed text: {transcript} (confidence: {confidence})")
+                
+                # Get GPT response
+                gpt_response = self.get_gpt_response(transcript)
+                return {"transcript": transcript, "response": gpt_response}
+
+            except Exception as e:
+                self.logger.error(f"Speech-to-Text error: {e}")
                 return None
 
-            self.logger.info(f"Transcribed text: {transcript} (confidence: {confidence})")
-            
-            # Get GPT response
-            gpt_response = self.get_gpt_response(transcript)
-            return {"transcript": transcript, "response": gpt_response}
-
         except Exception as e:
-            self.logger.error(f"Speech-to-Text error: {e}")
+            self.logger.error(f"Error in process_audio_data: {e}")
             return None
-
-    except Exception as e:
-        self.logger.error(f"Error in process_audio_data: {e}")
-        return None
 
     def get_gpt_response(self, query):
         try:
