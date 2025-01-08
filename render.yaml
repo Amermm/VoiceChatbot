@@ -3,13 +3,21 @@ services:
     name: voicechatbot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn web_ui:app
+    startCommand: gunicorn web_ui:app --timeout 120 --workers 1 --threads 4 --worker-class gthread
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
       - key: OPENAI_API_KEY
         sync: false
       - key: GOOGLE_CREDENTIALS
         sync: false
       - key: DATABASE_EXCEL_PATH
-        value: /opt/render/project/src/data/database.xlsx
+        value: /opt/render/project/src/SCADA TestData.xlsx
       - key: ROBOTNAME
         value: Royal
+    healthCheckPath: /
+    buildFilter:
+      paths:
+        - web_ui.py
+        - voice_core_v1.py
+        - requirements.txt
