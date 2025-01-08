@@ -1,8 +1,9 @@
 services:
   - type: web
     name: voicechatbot
-    runtime: python
-    buildCommand: | apt-get update && apt-get install -y portaudio19-dev && \
+    env: python
+    buildCommand: |
+      apt-get update && apt-get install -y portaudio19-dev python3-dev && \
       pip install --no-cache-dir -r requirements.txt
     startCommand: gunicorn web_ui:app --timeout 120 --workers 1 --threads 4 --worker-class gthread
     envVars:
