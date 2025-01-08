@@ -153,3 +153,16 @@ class VoiceChatBot:
         except Exception as e:
             self.logger.error(f"GPT Error: {e}")
             return "Sorry, I couldn't process your request."
+
+def process_continuous_audio(self):
+    """
+    Generator function for processing continuous audio
+    Each client will get their own instance of this generator
+    """
+    while self.is_listening:
+        try:
+            # Return empty result to keep connection alive
+            yield "data: {}\n\n"
+        except Exception as e:
+            self.logger.error(f"Error in continuous processing: {e}")
+            yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
