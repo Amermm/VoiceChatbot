@@ -47,6 +47,16 @@
                         <div class="bar"></div>
                         <div class="bar"></div>
                         <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
                     </div>
                     <span class="listening-text">Listening...</span>
                 </div>
@@ -59,182 +69,101 @@
         </div>
     </div>
 
-<script>
-    const chatBox = document.getElementById('chatBox');
-    const askButton = document.getElementById('askButton');
-    const endButton = document.getElementById('endButton');
-    const clearChatButton = document.getElementById('clearChatButton');
-    const hideViewButton = document.getElementById('hideViewButton');
-    const statusDiv = document.getElementById('status');
-    let isListening = false;
-    let mediaRecorder;
-    let audioChunks = [];
+    <script>
+        const chatBox = document.getElementById('chatBox');
+        const askButton = document.getElementById('askButton');
+        const endButton = document.getElementById('endButton');
+        const clearChatButton = document.getElementById('clearChatButton');
+        const hideViewButton = document.getElementById('hideViewButton');
+        const statusDiv = document.getElementById('status');
+        let isListening = false;
+        let eventSource = null;
 
-    function addMessage(text, isUser = false) {
-        console.log(`Adding message: ${text} (User: ${isUser})`);
-        const messageDiv = document.createElement('div');
-        messageDiv.className = isUser ? 'message user-message' : 'message bot-message';
-        messageDiv.textContent = text;
-        chatBox.appendChild(messageDiv);
-        chatBox.scrollTop = chatBox.scrollHeight;
-    }
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = isUser ? 'message user-message' : 'message bot-message';
+            messageDiv.textContent = text;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
 
-    function updateStatus(message) {
-        console.log(`Status update: ${message}`);
-        statusDiv.textContent = message;
-    }
+        function updateStatus(message) {
+            statusDiv.textContent = message;
+        }
 
-    async function startRecording() {
-        console.log('Starting recording...');
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    channelCount: 1,
-                    sampleRate: 48000,
-                    echoCancellation: true,
-                    noiseSuppression: true
+        function startListening() {
+            fetch('/start_listening', { method: 'POST' })
+                .then(() => {
+                    isListening = true;
+                    askButton.disabled = true;
+                    askButton.textContent = 'Listening...';
+                    updateStatus('Listening to your questions...');
+                    document.getElementById('voiceAnimation').style.display = 'flex';
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    updateStatus('Error starting listening');
+                });
+
+            eventSource = new EventSource('/stream');
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.transcript) {
+                    addMessage(data.transcript, true);
                 }
-            });
-            console.log('Got media stream');
-            
-            mediaRecorder = new MediaRecorder(stream);
-            console.log('MediaRecorder created');
-            
-            mediaRecorder.ondataavailable = async (event) => {
-                console.log(`Data available - size: ${event.data.size}`);
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                    await processAudioChunk();
+                if (data.response) {
+                    addMessage(data.response, false);
                 }
             };
-
-            mediaRecorder.onstart = () => {
-                console.log('MediaRecorder started');
-                audioChunks = [];
-            };
-
-            mediaRecorder.onstop = () => {
-                console.log('MediaRecorder stopped');
-            };
-
-            mediaRecorder.onerror = (event) => {
-                console.error('MediaRecorder error:', event.error);
-            };
-
-            mediaRecorder.start(2000); // Record in 2-second chunks
-        } catch (err) {
-            console.error('Error starting recording:', err);
-            updateStatus('Error: ' + err.message);
         }
-    }
 
-    async function processAudioChunk() {
-        console.log(`Processing ${audioChunks.length} chunks`);
-        if (audioChunks.length === 0) return;
-
-        try {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
-            console.log(`Created blob of size: ${audioBlob.size}`);
-
-            const base64Audio = await blobToBase64(audioBlob);
-            console.log('Converted to base64');
-
-            const response = await fetch('/process_audio', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ audio: base64Audio }),
-            });
-
-            console.log('Server response status:', response.status);
-            const result = await response.json();
-            console.log('Server response:', result);
-
-            if (result.transcript) {
-                addMessage(result.transcript, true);
-            }
-            if (result.response) {
-                addMessage(result.response, false);
-                // Text-to-speech
-                const speech = new SpeechSynthesisUtterance(result.response);
-                window.speechSynthesis.speak(speech);
+        function stopListening() {
+            if (eventSource) {
+                eventSource.close();
             }
 
-        } catch (error) {
-            console.error('Error processing audio:', error);
-        } finally {
-            audioChunks = [];
+            fetch('/stop_listening', { method: 'POST' })
+                .then(() => {
+                    isListening = false;
+                    askButton.disabled = false;
+                    askButton.textContent = 'Ask Me';
+                    updateStatus('Chat ended');
+                    document.getElementById('voiceAnimation').style.display = 'none';
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    updateStatus('Error stopping listening');
+                });
         }
-    }
 
-    function blobToBase64(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
+        askButton.addEventListener('click', () => {
+            if (!isListening) {
+                startListening();
+            }
         });
-    }
 
-    askButton.addEventListener('click', async () => {
-        console.log('Ask button clicked');
-        if (!isListening) {
-            try {
-                await fetch('/start_listening', { method: 'POST' });
-                await startRecording();
-                isListening = true;
-                askButton.disabled = true;
-                askButton.textContent = 'Listening...';
-                updateStatus('Listening to your questions...');
-                document.getElementById('voiceAnimation').style.display = 'flex';
-            } catch (err) {
-                console.error('Error:', err);
-                updateStatus('Error: ' + err.message);
+        endButton.addEventListener('click', () => {
+            if (isListening) {
+                stopListening();
             }
-        }
-    });
+            updateStatus('Chat stopped.');
+        });
 
-    endButton.addEventListener('click', async () => {
-        console.log('End button clicked');
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            mediaRecorder.stop();
-            mediaRecorder.stream.getTracks().forEach(track => track.stop());
-        }
-        try {
-            await fetch('/stop_listening', { method: 'POST' });
-        } catch (err) {
-            console.error('Error stopping:', err);
-        }
-        isListening = false;
-        askButton.disabled = false;
-        askButton.textContent = 'Ask Me';
-        updateStatus('Chat stopped.');
-        document.getElementById('voiceAnimation').style.display = 'none';
-    });
+        clearChatButton.addEventListener('click', () => {
+            const voiceAnimation = document.getElementById('voiceAnimation');
+            chatBox.innerHTML = '';
+            chatBox.appendChild(voiceAnimation);
+        });
 
-    clearChatButton.addEventListener('click', () => {
-        console.log('Clear chat clicked');
-        const voiceAnimation = document.getElementById('voiceAnimation');
-        chatBox.innerHTML = '';
-        chatBox.appendChild(voiceAnimation);
-    });
-
-    hideViewButton.addEventListener('click', () => {
-        console.log('Hide/Show view clicked');
-        if (chatBox.style.display === 'none') {
-            chatBox.style.display = 'block';
-            hideViewButton.textContent = 'Hide View';
-        } else {
-            chatBox.style.display = 'none';
-            hideViewButton.textContent = 'Show View';
-        }
-    });
-
-    // Initial setup
-    console.log('Page loaded, initializing...');
-    updateStatus('Ready to chat!');
-</script>
-
+        hideViewButton.addEventListener('click', () => {
+            if (chatBox.style.display === 'none') {
+                chatBox.style.display = 'block';
+                hideViewButton.textContent = 'Hide View';
+            } else {
+                chatBox.style.display = 'none';
+                hideViewButton.textContent = 'Show View';
+            }
+        });
+    </script>
 </body>
 </html>
