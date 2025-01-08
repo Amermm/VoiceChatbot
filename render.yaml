@@ -4,7 +4,7 @@ services:
     env: python
     buildCommand: |
       apt-get update && \
-      apt-get install -y portaudio19-dev libasound2-dev libportaudio2 libportaudiocpp0 python3-dev gcc g++ make && \
+      apt-get install -y portaudio19-dev libasound2-dev python3-dev gcc g++ make && \
       pip install --no-cache-dir -r requirements.txt
     startCommand: gunicorn web_ui:app --timeout 120 --workers 1 --threads 4 --worker-class gthread
     envVars:
