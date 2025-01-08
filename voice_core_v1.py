@@ -2,193 +2,198 @@ import os
 import openai
 import pandas as pd
 from google.cloud import speech
-import logging
-import json
-import base64
-import tempfile
+import pyaudio
+import wave
+import threading
+import queue
+import time
 from datetime import datetime
+import logging
+import numpy as np
+import pyttsx3
 
 class VoiceChatBot:
     def __init__(self):
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
         
-        # Setup environment and APIs
+        # Load configuration from environment variables
         self.setup_environment()
+        
+        # Audio settings
+        self.RATE = 16000
+        self.CHUNK = 1024  # Smaller chunk size for faster processing
+        self.FORMAT = pyaudio.paInt16
+        self.CHANNELS = 1
         
         # Initialize components
         self.df = self._load_excel_data()
-        self.speech_client = self._setup_speech_client()
-        self.is_listening = False
+        self.speech_client = speech.SpeechClient()
         
-        # Get robot name from environment
-        self.robot_name = os.getenv('ROBOTNAME', 'Royal')
+        # Streaming components
+        self.is_listening = False
+        self.audio_queue = queue.Queue()
+        self.p = None
+        self.stream = None
 
     def setup_environment(self):
-        """Setup environment variables and APIs"""
-        try:
-            # Setup OpenAI
-            self.openai_api_key = os.getenv('OPENAI_API_KEY')
-            if not self.openai_api_key:
-                raise ValueError("OpenAI API key not found in environment")
-            openai.api_key = self.openai_api_key
-            
-            # Setup Google credentials
-            google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
-            if not google_creds_json:
-                raise ValueError("Google credentials not found in environment")
-                
-            # Write Google credentials to temporary file
-            try:
-                creds_dict = json.loads(google_creds_json)
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
-                    json.dump(creds_dict, temp_file)
-                    self.google_creds_path = temp_file.name
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_creds_path
-                self.logger.info("Successfully setup Google credentials")
-            except json.JSONDecodeError:
-                raise ValueError("Invalid Google credentials JSON format")
-                
-            # Get database path
-            self.database_path = os.getenv('DATABASE_EXCEL_PATH')
-            if not self.database_path:
-                raise ValueError("Database Excel path not found in environment")
-                
-        except Exception as e:
-            self.logger.error(f"Environment setup error: {e}")
-            raise
+        self.openai_api_key = os.getenv('OPENAI_API_KEY')
+        self.google_credentials = os.getenv('GOOGLE_CREDENTIALS')
+        self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
+        self.robot_name = os.getenv('ROBOTNAME', 'AI Assistant')
 
-    def _setup_speech_client(self):
-        """Initialize Google Speech client"""
-        try:
-            return speech.SpeechClient()
-        except Exception as e:
-            self.logger.error(f"Failed to initialize Speech client: {e}")
-            raise
+        # Set Google Application Credentials
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_credentials
+
+        self.logger.info("Environment variables loaded successfully.")
 
     def _load_excel_data(self):
-        """Load Excel data with error handling"""
         try:
-            df = pd.read_excel(self.database_path)
+            df = pd.read_excel(self.database_excel_path)
             for column in df.columns:
-                if pd.api.types.is_numeric_dtype(df[column]):
+                if df[column].dtype in ['float64', 'int64']:
                     df[column] = df[column].fillna(0)
                 else:
                     df[column] = df[column].fillna('')
+            # Pre-process context data
             self.context_data = df.astype(str).to_string(index=False, header=True)
             return df
         except Exception as e:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
+    def audio_callback(self, in_data, frame_count, time_info, status):
+        if self.is_listening:
+            self.audio_queue.put(in_data)
+        return (in_data, pyaudio.paContinue)
+
     def start_listening(self):
-        """Start listening session"""
         self.is_listening = True
-        self.logger.info("Started listening")
-        return {"status": "started"}
+        self.p = pyaudio.PyAudio()
+        self.stream = self.p.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            input=True,
+            frames_per_buffer=self.CHUNK,
+            stream_callback=self.audio_callback
+        )
+        self.stream.start_stream()
 
     def stop_listening(self):
-        """Stop listening session"""
         self.is_listening = False
-        self.logger.info("Stopped listening")
-        return {"status": "stopped"}
-    
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
+        if self.p:
+            self.p.terminate()
+        self.p = None
+        self.stream = None
+
     def process_audio_data(self, audio_data):
-        """Process audio data from the browser"""
         if not audio_data:
-            self.logger.error("No audio data received")
             return None
-    
+        
+        # Convert audio data to wav file
+        temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        with wave.open(temp_filename, 'wb') as wf:
+            wf.setnchannels(self.CHANNELS)
+            wf.setsampwidth(self.p.get_sample_size(self.FORMAT))
+            wf.setframerate(self.RATE)
+            wf.writeframes(b''.join(audio_data))
+
         try:
-            # Decode base64 audio data
-            if ',' not in audio_data:
-                self.logger.error("Invalid audio data format")
-                return None
-    
-            audio_content = base64.b64decode(audio_data.split(',')[1])
-            content_size = len(audio_content)
-            self.logger.info(f"Decoded audio size: {content_size} bytes")
-    
-            if content_size < 1000:  # Skip very small audio chunks
-                self.logger.info(f"Audio chunk too small ({content_size} bytes), skipping")
-                return None
-    
-            # Process with Google Speech-to-Text
-            audio = speech.RecognitionAudio(content=audio_content)
+            with open(temp_filename, 'rb') as f:
+                content = f.read()
+
+            audio = speech.RecognitionAudio(content=content)
             config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-                sample_rate_hertz=48000,
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=self.RATE,
                 language_code="en-US",
                 enable_automatic_punctuation=True,
-                use_enhanced=True,
-                audio_channel_count=1
+                use_enhanced=True
             )
-    
-            self.logger.info(f"Sending {content_size} bytes to Speech-to-Text")
-            try:
-                response = self.speech_client.recognize(config=config, audio=audio)
-                if not response.results:
-                    self.logger.info("No transcription results")
-                    return None
-                
-                transcript = response.results[0].alternatives[0].transcript
-                confidence = response.results[0].alternatives[0].confidence
-                
-                self.logger.info(f"Transcribed: '{transcript}' with confidence: {confidence}")
-    
-                if confidence < 0.6:
-                    self.logger.info(f"Low confidence ({confidence}), skipping")
-                    return None
-    
-                # Get GPT response
-                gpt_response = self.get_gpt_response(transcript)
-                return {
-                    "transcript": transcript,
-                    "response": gpt_response,
-                    "confidence": confidence
-                }
-    
-            except Exception as e:
-                self.logger.error(f"Speech-to-Text API error: {e}")
-                return None
-    
-        except Exception as e:
-            self.logger.error(f"Error processing audio: {e}")
-            return None
-     
-    
-    def get_gpt_response(self, query):
-        """Get GPT response with error handling"""
-        try:
-            self.logger.info(f"Sending query to GPT: {query}")
+
+            response = self.speech_client.recognize(config=config, audio=audio)
             
-            # Use the OpenAI ChatCompletion API
+            for result in response.results:
+                return result.alternatives[0].transcript
+
+        finally:
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+
+        return None
+
+    def get_gpt_response(self, query):
+        try:
+            openai.api_key = self.openai_api_key
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
                     {
-                        "role": "system", 
-                        "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses and use the available data when relevant."
+                        "role": "system",
+                        "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses."
                     },
                     {
-                        "role": "system", 
+                        "role": "system",
                         "content": f"Available data context:\n{self.context_data}"
                     },
                     {
-                        "role": "user", 
+                        "role": "user",
                         "content": query
                     }
                 ],
-                max_tokens=150,
-                temperature=0.7
+                max_tokens=100,
+                temperature=0
             )
-            
-            # Extract the response content
-            response_content = response.choices[0].message.content.strip()
-            self.logger.info(f"GPT response: {response_content}")
-            return response_content
-    
+            return response.choices[0].message['content'].strip()
         except Exception as e:
             self.logger.error(f"GPT Error: {e}")
-            return "I apologize, but I'm having trouble processing your request right now."
-    
+            return "Sorry, I couldn't process your request."
+
+    def speak_response(self, response):
+        def tts_worker(response_text):
+            try:
+                engine = pyttsx3.init()
+                engine.say(response_text)
+                engine.runAndWait()
+            except Exception as e:
+                self.logger.error(f"TTS Error: {e}")
+
+        tts_thread = threading.Thread(target=tts_worker, args=(response,))
+        tts_thread.daemon = True
+        tts_thread.start()
+
+    def process_continuous_audio(self):
+        audio_data = []
+        silence_threshold = 500  # Adjust based on your needs
+        silence_frames = 0
+        max_silence_frames = 20  # Adjust based on your needs
+
+        while self.is_listening:
+            try:
+                if self.audio_queue.qsize() > 0:
+                    data = self.audio_queue.get()
+                    audio_data.append(data)
+                    
+                    audio_array = np.frombuffer(data, dtype=np.int16)
+                    if np.abs(audio_array).mean() < silence_threshold:
+                        silence_frames += 1
+                    else:
+                        silence_frames = 0
+
+                    if silence_frames >= max_silence_frames and len(audio_data) > 0:
+                        transcript = self.process_audio_data(audio_data)
+                        if transcript:
+                            response = self.get_gpt_response(transcript)
+                            yield {"transcript": transcript, "response": response}
+                            self.speak_response(response)
+                        audio_data = []
+                        silence_frames = 0
+                else:
+                    time.sleep(0.1)
+            except Exception as e:
+                self.logger.error(f"Error in continuous processing: {e}")
+                yield {"error": str(e)}
