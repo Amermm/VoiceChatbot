@@ -112,9 +112,17 @@ class VoiceChatBot:
             return "Sorry, I couldn't process your request."
 
     def process_audio_data(self, audio_file_path):
-        """Process audio by transcribing and querying GPT."""
-        transcript = self.listen_and_transcribe(audio_file_path)
-        if transcript:
+        try:
+            self.logger.info(f"Processing audio file: {audio_file_path}")
+            transcript = self.listen_and_transcribe(audio_file_path)
+            if not transcript:
+                self.logger.error("Transcription failed or returned None.")
+                return {"error": "Transcription failed."}
+            
             response = self.get_gpt_response(transcript)
+            self.logger.info(f"Generated response: {response}")
             return {"transcript": transcript, "response": response}
-        return {"error": "No valid transcription or response."}
+        except Exception as e:
+            self.logger.error(f"Error in process_audio_data: {e}")
+            return {"error": str(e)}
+
