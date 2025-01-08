@@ -93,104 +93,105 @@ class VoiceChatBot:
         self.logger.info("Stopped listening")
         return {"status": "stopped"}
 
-def process_audio_data(self, audio_data):
-    """Process audio data from the browser"""
-    if not audio_data:
-        self.logger.error("No audio data received")
-        return None
+    def process_audio_data(self, audio_data):
+        """Process audio data from the browser"""
+        if not audio_data:
+            self.logger.error("No audio data received")
+            return None
             
-    try:
-        # Decode base64 audio data
         try:
-            if ',' not in audio_data:
-                self.logger.error("Invalid audio data format")
+            # Decode base64 audio data
+            try:
+                if ',' not in audio_data:
+                    self.logger.error("Invalid audio data format")
+                    return None
+                    
+                audio_content = base64.b64decode(audio_data.split(',')[1])
+                self.logger.debug(f"Decoded audio size: {len(audio_content)} bytes")
+                
+                if len(audio_content) < 1000:  # Skip very small audio chunks
+                    self.logger.debug("Audio chunk too small, skipping")
+                    return None
+                    
+            except Exception as e:
+                self.logger.error(f"Error decoding audio data: {e}")
+                return None
+
+            # Process with Google Speech-to-Text
+            audio = speech.RecognitionAudio(content=audio_content)
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+                sample_rate_hertz=48000,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+                use_enhanced=True
+            )
+
+            self.logger.info("Sending request to Google Speech-to-Text")
+            response = self.speech_client.recognize(config=config, audio=audio)
+            
+            if not response.results:
+                self.logger.debug("No transcription results")
                 return None
                 
-            audio_content = base64.b64decode(audio_data.split(',')[1])
-            self.logger.debug(f"Decoded audio size: {len(audio_content)} bytes")
+            transcript = response.results[0].alternatives[0].transcript
+            confidence = response.results[0].alternatives[0].confidence
             
-            if len(audio_content) < 1000:  # Skip very small audio chunks
-                self.logger.debug("Audio chunk too small, skipping")
+            self.logger.info(f"Transcribed: {transcript} (confidence: {confidence})")
+            
+            # Only process if confidence is high enough
+            if confidence < 0.6:
+                self.logger.debug(f"Low confidence ({confidence}), skipping")
                 return None
+            
+            # Only process if we have meaningful text
+            if not transcript or len(transcript.strip()) < 2:
+                self.logger.debug("Empty or too short transcript")
+                return None
+                
+            # Get GPT response
+            gpt_response = self.get_gpt_response(transcript)
+            
+            return {
+                "transcript": transcript,
+                "response": gpt_response,
+                "confidence": confidence
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error processing audio: {e}")
+            return None
+
+    def get_gpt_response(self, query):
+        """Get GPT response with error handling"""
+        try:
+            self.logger.info(f"Sending query to GPT: {query}")
+            
+            client = openai.Client(api_key=self.openai_api_key)
+            completion = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses and use the available data when relevant."
+                    },
+                    {
+                        "role": "system", 
+                        "content": f"Available data context:\n{self.context_data}"
+                    },
+                    {
+                        "role": "user", 
+                        "content": query
+                    }
+                ],
+                max_tokens=150,
+                temperature=0.7
+            )
+                
+            response = completion.choices[0].message.content.strip()
+            self.logger.info(f"GPT response: {response}")
+            return response
                 
         except Exception as e:
-            self.logger.error(f"Error decoding audio data: {e}")
-            return None
-
-        # Process with Google Speech-to-Text
-        audio = speech.RecognitionAudio(content=audio_content)
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-            sample_rate_hertz=48000,
-            language_code="en-US",
-            enable_automatic_punctuation=True,
-            use_enhanced=True
-        )
-
-        self.logger.info("Sending request to Google Speech-to-Text")
-        response = self.speech_client.recognize(config=config, audio=audio)
-        
-        if not response.results:
-            self.logger.debug("No transcription results")
-            return None
-            
-        transcript = response.results[0].alternatives[0].transcript
-        confidence = response.results[0].alternatives[0].confidence
-        
-        self.logger.info(f"Transcribed: {transcript} (confidence: {confidence})")
-        
-        # Only process if confidence is high enough
-        if confidence < 0.6:
-            self.logger.debug(f"Low confidence ({confidence}), skipping")
-            return None
-        
-        # Only process if we have meaningful text
-        if not transcript or len(transcript.strip()) < 2:
-            self.logger.debug("Empty or too short transcript")
-            return None
-            
-        # Get GPT response
-        gpt_response = self.get_gpt_response(transcript)
-        
-        return {
-            "transcript": transcript,
-            "response": gpt_response,
-            "confidence": confidence
-        }
-
-    except Exception as e:
-        self.logger.error(f"Error processing audio: {e}")
-        return None
-def get_gpt_response(self, query):
-    """Get GPT response with error handling"""
-    try:
-        self.logger.info(f"Sending query to GPT: {query}")
-        
-        client = openai.Client(api_key=self.openai_api_key)
-        completion = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "system", 
-                    "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses and use the available data when relevant."
-                },
-                {
-                    "role": "system", 
-                    "content": f"Available data context:\n{self.context_data}"
-                },
-                {
-                    "role": "user", 
-                    "content": query
-                }
-            ],
-            max_tokens=150,
-            temperature=0.7
-        )
-            
-        response = completion.choices[0].message.content.strip()
-        self.logger.info(f"GPT response: {response}")
-        return response
-            
-    except Exception as e:
-        self.logger.error(f"GPT Error: {e}")
-        return "I apologize, but I'm having trouble processing your request right now."
+            self.logger.error(f"GPT Error: {e}")
+            return "I apologize, but I'm having trouble processing your request right now."
