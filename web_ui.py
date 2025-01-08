@@ -26,7 +26,14 @@ def stop_listening():
 @app.route('/process_audio', methods=['POST'])
 def process_audio():
     try:
-        result = chatbot.process_audio_data()
+        audio_file = request.files.get('audio_file')
+        if not audio_file:
+            return jsonify({"error": "No audio file provided"}), 400
+
+        audio_file_path = f"/tmp/{audio_file.filename}"
+        audio_file.save(audio_file_path)
+
+        result = chatbot.process_audio_data(audio_file_path)
         if "error" in result:
             return jsonify(result), 400
         return jsonify(result), 200
