@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     gcc \
     g++ \
-    make && \
-    apt-get clean
+    make \
+    && apt-get clean
 
 # Copy the application files into the container
 COPY . /app
@@ -20,8 +20,8 @@ COPY . /app
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the port the app runs on
+# Expose the port the app will run on
 EXPOSE 5000
 
-# Run the application
+# Start the application
 CMD ["gunicorn", "web_ui:app", "--timeout", "120", "--workers", "1", "--threads", "4", "--worker-class", "gthread"]
