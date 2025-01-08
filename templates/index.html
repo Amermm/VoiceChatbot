@@ -68,8 +68,7 @@
             <div id="status" class="status-message"></div>
         </div>
     </div>
-
-    <script>
+ <script>
     const chatBox = document.getElementById('chatBox');
     const askButton = document.getElementById('askButton');
     const endButton = document.getElementById('endButton');
@@ -79,6 +78,7 @@
     let isListening = false;
     let mediaRecorder;
     let audioChunks = [];
+    let processingAudio = false;
 
     function addMessage(text, isUser = false) {
         const messageDiv = document.createElement('div');
@@ -90,11 +90,9 @@
 
     function updateStatus(message) {
         statusDiv.textContent = message;
-        console.log('Status updated:', message); // Debug log
     }
 
     async function startRecording() {
-        console.log("Starting recording function called"); // Debug log
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
@@ -102,91 +100,85 @@
                     sampleRate: 48000
                 }
             });
-            console.log("Microphone access granted"); // Debug log
             
             mediaRecorder = new MediaRecorder(stream, {
                 mimeType: 'audio/webm;codecs=opus',
                 bitsPerSecond: 128000
             });
             
-            mediaRecorder.ondataavailable = (event) => {
-                console.log("Audio data available", event.data.size); // Debug log
-                if (event.data.size > 0) {
+            mediaRecorder.ondataavailable = async (event) => {
+                if (event.data.size > 0 && !processingAudio) {
                     audioChunks.push(event.data);
-                    processAudioChunk();
+                    await processAudioChunk();
                 }
             };
 
-            mediaRecorder.onerror = (error) => {
-                console.error('MediaRecorder error:', error); // Debug log
-            };
-
-            mediaRecorder.onstart = () => {
-                console.log('MediaRecorder started'); // Debug log
-            };
-
-            mediaRecorder.onstop = () => {
-                console.log('MediaRecorder stopped'); // Debug log
-            };
-
-            mediaRecorder.start(3000);
-            console.log("Recording started"); // Debug log
+            mediaRecorder.start(2000); // Record in 2-second chunks
+            console.log('Recording started');
         } catch (err) {
-            console.error('Error in startRecording:', err); // Debug log
+            console.error('Error starting recording:', err);
             updateStatus('Error accessing microphone: ' + err.message);
-            throw err;
+            stopRecording();
         }
     }
 
     async function processAudioChunk() {
-        console.log("Processing audio chunk, size:", audioChunks.length); // Debug log
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
-        const reader = new FileReader();
+        if (processingAudio || audioChunks.length === 0) return;
         
-        reader.onloadend = async () => {
-            try {
-                const base64Audio = reader.result;
-                console.log("Sending audio to server"); // Debug log
-                
-                const response = await fetch('/process_audio', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ audio: base64Audio }),
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const result = await response.json();
-                console.log("Server response:", result); // Debug log
-
-                if (result.transcript) {
-                    addMessage(result.transcript, true);
-                    console.log("Added transcript:", result.transcript); // Debug log
-                }
-                if (result.response) {
-                    addMessage(result.response, false);
-                    console.log("Added response:", result.response); // Debug log
+        processingAudio = true;
+        try {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+            const reader = new FileReader();
+            
+            reader.onloadend = async () => {
+                try {
+                    const base64Audio = reader.result;
+                    const response = await fetch('/process_audio', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ audio: base64Audio }),
+                    });
                     
-                    // Text-to-speech
-                    const speech = new SpeechSynthesisUtterance(result.response);
-                    window.speechSynthesis.speak(speech);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    if (result.transcript) {
+                        addMessage(result.transcript, true);
+                    }
+                    if (result.response) {
+                        addMessage(result.response, false);
+                        const speech = new SpeechSynthesisUtterance(result.response);
+                        window.speechSynthesis.speak(speech);
+                    }
+                } catch (error) {
+                    console.error('Error processing audio:', error);
                 }
-            } catch (error) {
-                console.error('Error processing audio chunk:', error); // Debug log
-                updateStatus('Error processing audio: ' + error.message);
-            }
-        };
-        
-        reader.readAsDataURL(audioBlob);
-        audioChunks = []; // Clear the chunks after processing
+            };
+            
+            reader.readAsDataURL(audioBlob);
+        } finally {
+            audioChunks = [];
+            processingAudio = false;
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        }
+        isListening = false;
+        askButton.disabled = false;
+        askButton.textContent = 'Ask Me';
+        updateStatus('Chat stopped.');
+        document.getElementById('voiceAnimation').style.display = 'none';
     }
 
     askButton.addEventListener('click', async () => {
-        console.log("Ask button clicked"); // Debug log
         if (!isListening) {
             try {
                 await startRecording();
@@ -196,53 +188,26 @@
                 updateStatus('Listening to your questions...');
                 document.getElementById('voiceAnimation').style.display = 'flex';
                 
-                // Notify server
-                const response = await fetch('/start_listening', {
-                    method: 'POST'
-                });
-                console.log("Server notified of listening start:", await response.json()); // Debug log
+                await fetch('/start_listening', { method: 'POST' });
             } catch (err) {
-                console.error('Error in ask button handler:', err); // Debug log
-                isListening = false;
-                askButton.disabled = false;
-                askButton.textContent = 'Ask Me';
-                updateStatus('Error: ' + err.message);
+                console.error('Error:', err);
+                stopRecording();
             }
         }
     });
 
     endButton.addEventListener('click', async () => {
-        console.log("End button clicked"); // Debug log
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
-            mediaRecorder.stop();
-            mediaRecorder.stream.getTracks().forEach(track => track.stop());
-        }
-        
-        try {
-            const response = await fetch('/stop_listening', {
-                method: 'POST'
-            });
-            console.log("Server notified of listening stop:", await response.json()); // Debug log
-        } catch (err) {
-            console.error('Error stopping listening:', err); // Debug log
-        }
-
-        isListening = false;
-        askButton.disabled = false;
-        askButton.textContent = 'Ask Me';
-        updateStatus('Chat stopped.');
-        document.getElementById('voiceAnimation').style.display = 'none';
+        await fetch('/stop_listening', { method: 'POST' });
+        stopRecording();
     });
 
     clearChatButton.addEventListener('click', () => {
-        console.log("Clear chat button clicked"); // Debug log
         const voiceAnimation = document.getElementById('voiceAnimation');
         chatBox.innerHTML = '';
         chatBox.appendChild(voiceAnimation);
     });
 
     hideViewButton.addEventListener('click', () => {
-        console.log("Hide view button clicked"); // Debug log
         if (chatBox.style.display === 'none') {
             chatBox.style.display = 'block';
             hideViewButton.textContent = 'Hide View';
@@ -250,13 +215,7 @@
             chatBox.style.display = 'none';
             hideViewButton.textContent = 'Show View';
         }
-    });
-
-    // Initial setup
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log("Page loaded, initializing..."); // Debug log
-        updateStatus('Ready to chat!');
-    });
-  </script>
+    }); 
+</script>
 </body>
 </html>
