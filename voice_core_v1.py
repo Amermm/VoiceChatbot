@@ -27,11 +27,17 @@ class VoiceChatBot:
         self.google_credentials = os.getenv('GOOGLE_CREDENTIALS')
         self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
         self.robot_name = os.getenv('ROBOTNAME', 'AI Assistant')
-
+    
+        # Write GOOGLE_CREDENTIALS to a file
+        credentials_path = "/tmp/google_credentials.json"
+        with open(credentials_path, "w") as cred_file:
+            cred_file.write(self.google_credentials)
+    
         # Set Google Application Credentials
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.google_credentials
-
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+    
         self.logger.info("Environment variables loaded successfully.")
+
 
     def _load_excel_data(self):
         try:
