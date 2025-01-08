@@ -93,57 +93,74 @@ class VoiceChatBot:
         self.logger.info("Stopped listening")
         return {"status": "stopped"}
 
-    def process_audio_data(self, audio_data):
-        """Process audio data from the browser"""
-        if not audio_data:
-            return None
+def process_audio_data(self, audio_data):
+    """Process audio data from the browser"""
+    if not audio_data:
+        self.logger.error("No audio data received")
+        return None
             
+    try:
+        # Decode base64 audio data
         try:
-            # Decode base64 audio data
-            try:
-                audio_content = base64.b64decode(audio_data.split(',')[1])
-                if len(audio_content) < 1000:  # Skip very small audio chunks
-                    return None
-            except Exception as e:
-                self.logger.error(f"Error decoding audio data: {e}")
-                return None
-
-            # Process with Google Speech-to-Text
-            audio = speech.RecognitionAudio(content=audio_content)
-            config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-                sample_rate_hertz=48000,
-                language_code="en-US",
-                enable_automatic_punctuation=True,
-                use_enhanced=True,
-                model="latest_long",  # Use the best available model
-                enable_word_confidence=True
-            )
-
-            response = self.speech_client.recognize(config=config, audio=audio)
-            
-            if not response.results:
+            if ',' not in audio_data:
+                self.logger.error("Invalid audio data format")
                 return None
                 
-            transcript = response.results[0].alternatives[0].transcript
-            self.logger.info(f"Transcribed: {transcript}")
+            audio_content = base64.b64decode(audio_data.split(',')[1])
+            self.logger.debug(f"Decoded audio size: {len(audio_content)} bytes")
             
-            # Only process if we have meaningful text
-            if not transcript or len(transcript.strip()) < 2:
+            if len(audio_content) < 1000:  # Skip very small audio chunks
+                self.logger.debug("Audio chunk too small, skipping")
                 return None
                 
-            # Get GPT response
-            gpt_response = self.get_gpt_response(transcript)
-            
-            return {
-                "transcript": transcript,
-                "response": gpt_response
-            }
-
         except Exception as e:
-            self.logger.error(f"Error processing audio: {e}")
+            self.logger.error(f"Error decoding audio data: {e}")
             return None
 
+        # Process with Google Speech-to-Text
+        audio = speech.RecognitionAudio(content=audio_content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+            sample_rate_hertz=48000,
+            language_code="en-US",
+            enable_automatic_punctuation=True,
+            use_enhanced=True
+        )
+
+        self.logger.info("Sending request to Google Speech-to-Text")
+        response = self.speech_client.recognize(config=config, audio=audio)
+        
+        if not response.results:
+            self.logger.debug("No transcription results")
+            return None
+            
+        transcript = response.results[0].alternatives[0].transcript
+        confidence = response.results[0].alternatives[0].confidence
+        
+        self.logger.info(f"Transcribed: {transcript} (confidence: {confidence})")
+        
+        # Only process if confidence is high enough
+        if confidence < 0.6:
+            self.logger.debug(f"Low confidence ({confidence}), skipping")
+            return None
+        
+        # Only process if we have meaningful text
+        if not transcript or len(transcript.strip()) < 2:
+            self.logger.debug("Empty or too short transcript")
+            return None
+            
+        # Get GPT response
+        gpt_response = self.get_gpt_response(transcript)
+        
+        return {
+            "transcript": transcript,
+            "response": gpt_response,
+            "confidence": confidence
+        }
+
+    except Exception as e:
+        self.logger.error(f"Error processing audio: {e}")
+        return None
 def get_gpt_response(self, query):
     """Get GPT response with error handling"""
     try:
