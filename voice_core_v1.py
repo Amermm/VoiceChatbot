@@ -20,7 +20,6 @@ class VoiceChatBot:
         # Initialize components
         self.df = self._load_excel_data()
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
         self.speech_client = speech.SpeechClient()
 
     def setup_environment(self):
@@ -49,20 +48,25 @@ class VoiceChatBot:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
-    def listen_and_transcribe(self):
-        """Listen to audio input and transcribe using SpeechRecognition."""
-        with self.microphone as source:
-            self.logger.info("Listening for audio...")
-            try:
-                self.recognizer.adjust_for_ambient_noise(source)
-                audio = self.recognizer.listen(source)
-                transcript = self.recognizer.recognize_google(audio)
-                self.logger.info(f"Transcribed: {transcript}")
-                return transcript
-            except sr.UnknownValueError:
-                self.logger.error("Could not understand the audio.")
-            except sr.RequestError as e:
-                self.logger.error(f"SpeechRecognition API error: {e}")
+    def listen_and_transcribe(self, audio_file_path=None):
+        """Transcribe audio from a file or predefined input."""
+        try:
+            if audio_file_path:
+                with sr.AudioFile(audio_file_path) as source:
+                    self.logger.info("Processing audio file...")
+                    audio = self.recognizer.record(source)
+            else:
+                raise ValueError("Audio file path must be provided for transcription.")
+    
+            transcript = self.recognizer.recognize_google(audio)
+            self.logger.info(f"Transcribed: {transcript}")
+            return transcript
+        except sr.UnknownValueError:
+            self.logger.error("Could not understand the audio.")
+        except sr.RequestError as e:
+            self.logger.error(f"SpeechRecognition API error: {e}")
+        except Exception as e:
+            self.logger.error(f"Error in listen_and_transcribe: {e}")
         return None
 
     def get_gpt_response(self, query):
@@ -92,10 +96,11 @@ class VoiceChatBot:
             self.logger.error(f"GPT Error: {e}")
             return "Sorry, I couldn't process your request."
 
-    def process_audio_data(self):
+    def process_audio_data(self, audio_file_path):
         """Process audio by transcribing and querying GPT."""
-        transcript = self.listen_and_transcribe()
+        transcript = self.listen_and_transcribe(audio_file_path)
         if transcript:
             response = self.get_gpt_response(transcript)
             return {"transcript": transcript, "response": response}
         return {"error": "No valid transcription or response."}
+
