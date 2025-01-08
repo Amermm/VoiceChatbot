@@ -18,8 +18,3 @@ services:
       - key: ROBOTNAME
         value: Royal
     healthCheckPath: /
-    buildFilter:
-      paths:
-        - web_ui.py
-        - voice_core_v1.py
-        - requirements.txt
