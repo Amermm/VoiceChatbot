@@ -23,4 +23,3 @@ services:
         - web_ui.py
         - voice_core_v1.py
         - requirements.txt
-
