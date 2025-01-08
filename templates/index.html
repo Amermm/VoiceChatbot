@@ -70,15 +70,11 @@
     </div>
 
     <script>
-// Audio handling variables
 let mediaRecorder = null;
-let audioContext = null;
 let isListening = false;
-let silenceStart = null;
-let silenceThreshold = 0.015;
-let silenceTimeout = 1000;
+let audioContext = null;
+let audioStream = null;
 
-// DOM elements
 const chatBox = document.getElementById('chatBox');
 const askButton = document.getElementById('askButton');
 const endButton = document.getElementById('endButton');
@@ -97,11 +93,13 @@ function addMessage(text, isUser = false) {
 
 function updateStatus(message) {
     statusDiv.textContent = message;
+    console.log('Status:', message);
 }
 
 async function startRecording() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+        // Get audio stream
+        audioStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 channelCount: 1,
                 sampleRate: 48000,
@@ -111,78 +109,42 @@ async function startRecording() {
             }
         });
         
-        audioContext = new AudioContext();
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyzer = audioContext.createAnalyser();
-        analyzer.fftSize = 512;
-        analyzer.minDecibels = -90;
-        analyzer.maxDecibels = -10;
-        analyzer.smoothingTimeConstant = 0.85;
-        source.connect(analyzer);
-
-        mediaRecorder = new MediaRecorder(stream, {
+        // Create MediaRecorder
+        mediaRecorder = new MediaRecorder(audioStream, {
             mimeType: 'audio/webm;codecs=opus',
             audioBitsPerSecond: 128000
         });
 
-        let chunks = [];
-        
+        // Handle data available event
         mediaRecorder.ondataavailable = async (event) => {
+            console.log('Data available:', event.data.size);
             if (event.data.size > 0) {
-                chunks.push(event.data);
-                
-                // Create blob and send
-                const audioBlob = new Blob(chunks, { type: 'audio/webm;codecs=opus' });
-                const base64Audio = await blobToBase64(audioBlob);
-                await processAudioChunk(base64Audio);
-                chunks = []; // Clear chunks after processing
+                try {
+                    const audioBlob = new Blob([event.data], { type: 'audio/webm;codecs=opus' });
+                    const base64Audio = await blobToBase64(audioBlob);
+                    console.log('Sending audio chunk, size:', audioBlob.size);
+                    await processAudioChunk(base64Audio);
+                } catch (error) {
+                    console.error('Error processing chunk:', error);
+                }
             }
         };
 
-        // Start recording with smaller time slices
-        mediaRecorder.start(1000);
+        // Start recording in 2-second chunks
+        mediaRecorder.start(2000);
+        console.log('MediaRecorder started');
         voiceAnimation.style.display = 'flex';
-
-        // Setup silence detection
-        const dataArray = new Uint8Array(analyzer.frequencyBinCount);
-        function checkAudioLevel() {
-            if (!isListening) return;
-            
-            analyzer.getByteFrequencyData(dataArray);
-            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-            const normalizedValue = average / 256;
-
-            if (normalizedValue < silenceThreshold) {
-                if (!silenceStart) {
-                    silenceStart = Date.now();
-                } else if (Date.now() - silenceStart > silenceTimeout) {
-                    // Restart recording after silence
-                    mediaRecorder.stop();
-                    chunks = [];
-                    setTimeout(() => {
-                        if (isListening) {
-                            mediaRecorder.start(1000);
-                        }
-                    }, 100);
-                    silenceStart = null;
-                }
-            } else {
-                silenceStart = null;
-            }
-            
-            requestAnimationFrame(checkAudioLevel);
-        }
-        
-        checkAudioLevel();
 
     } catch (err) {
         console.error('Error starting recording:', err);
         updateStatus('Error: ' + err.message);
+        throw err;
     }
 }
 
 async function processAudioChunk(audioData) {
     try {
+        console.log('Processing audio chunk');
         const response = await fetch('/process_audio', {
             method: 'POST',
             headers: {
@@ -192,13 +154,14 @@ async function processAudioChunk(audioData) {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`Server returned ${response.status}: ${await response.text()}`);
         }
 
         const result = await response.json();
+        console.log('Server response:', result);
         
         if (result.error) {
-            console.error('Error:', result.error);
+            console.error('Server error:', result.error);
             return;
         }
 
@@ -212,6 +175,7 @@ async function processAudioChunk(audioData) {
 
     } catch (error) {
         console.error('Error processing audio:', error);
+        updateStatus('Error processing audio: ' + error.message);
     }
 }
 
@@ -227,7 +191,6 @@ function blobToBase64(blob) {
 function speakResponse(text) {
     if (!text) return;
     
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
     
     const speech = new SpeechSynthesisUtterance(text);
@@ -235,7 +198,6 @@ function speakResponse(text) {
     speech.pitch = 1.0;
     speech.volume = 1.0;
     
-    // Get available voices
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice = voices.find(voice => 
         voice.lang === 'en-US' && voice.name.includes('Female')
@@ -246,6 +208,27 @@ function speakResponse(text) {
     }
     
     window.speechSynthesis.speak(speech);
+}
+
+async function stopRecording() {
+    console.log('Stopping recording...');
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+    }
+    try {
+        await fetch('/stop_listening', { method: 'POST' });
+        console.log('Stop listening request sent');
+    } catch (err) {
+        console.error('Error stopping:', err);
+    }
+    isListening = false;
+    askButton.disabled = false;
+    askButton.textContent = 'Ask Me';
+    updateStatus('Chat stopped.');
+    voiceAnimation.style.display = 'none';
 }
 
 // Event Listeners
@@ -265,25 +248,7 @@ askButton.addEventListener('click', async () => {
     }
 });
 
-endButton.addEventListener('click', async () => {
-    isListening = false;
-    if (mediaRecorder) {
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
-    }
-    if (audioContext) {
-        await audioContext.close();
-    }
-    try {
-        await fetch('/stop_listening', { method: 'POST' });
-    } catch (err) {
-        console.error('Error stopping:', err);
-    }
-    askButton.disabled = false;
-    askButton.textContent = 'Ask Me';
-    updateStatus('Chat stopped.');
-    voiceAnimation.style.display = 'none';
-});
+endButton.addEventListener('click', stopRecording);
 
 clearChatButton.addEventListener('click', () => {
     while (chatBox.firstChild) {
@@ -301,6 +266,13 @@ hideViewButton.addEventListener('click', () => {
     } else {
         chatBox.style.display = 'none';
         hideViewButton.textContent = 'Show View';
+    }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (isListening) {
+        stopRecording();
     }
 });
     </script>
