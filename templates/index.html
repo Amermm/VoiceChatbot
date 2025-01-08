@@ -96,8 +96,9 @@ function updateStatus(message) {
     console.log('Status:', message);
 }
 
-async function startRecording() {
+sync function startRecording() {
     try {
+        console.log('Starting recording...');
         audioStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 channelCount: 1,
@@ -107,23 +108,24 @@ async function startRecording() {
                 autoGainControl: true
             }
         });
+        console.log('Got audio stream:', audioStream);
         
-        // Create MediaRecorder with appropriate settings
+        // Create MediaRecorder
         mediaRecorder = new MediaRecorder(audioStream, {
-            mimeType: 'audio/webm',
+            mimeType: 'audio/webm;codecs=opus',
             audioBitsPerSecond: 128000
         });
+        console.log('Created MediaRecorder');
 
         // Handle data available event
         mediaRecorder.ondataavailable = async (event) => {
-            console.log('Audio data size:', event.data.size);
+            console.log('Data available:', event.data.size, 'bytes');
             if (event.data.size > 0) {
                 try {
-                    const audioBlob = new Blob([event.data], { type: 'audio/webm' });
+                    const audioBlob = new Blob([event.data], { type: 'audio/webm;codecs=opus' });
                     const base64Audio = await blobToBase64(audioBlob);
-                    console.log('Processing audio chunk...');
-                    const result = await processAudioChunk(base64Audio);
-                    console.log('Processing result:', result);
+                    console.log('Audio blob created, size:', audioBlob.size);
+                    await processAudioChunk(base64Audio);
                 } catch (error) {
                     console.error('Error processing chunk:', error);
                 }
@@ -132,18 +134,19 @@ async function startRecording() {
 
         // Handle recording start
         mediaRecorder.onstart = () => {
-            console.log('Recording started');
+            console.log('MediaRecorder started');
             voiceAnimation.style.display = 'flex';
         };
 
         // Handle recording stop
         mediaRecorder.onstop = () => {
-            console.log('Recording stopped');
+            console.log('MediaRecorder stopped');
             voiceAnimation.style.display = 'none';
         };
 
-        // Start recording in smaller chunks for more responsive interaction
+        // Start recording in smaller chunks
         mediaRecorder.start(1000);
+        console.log('Started MediaRecorder');
 
     } catch (err) {
         console.error('Error starting recording:', err);
@@ -154,32 +157,37 @@ async function startRecording() {
 
 async function processAudioChunk(audioData) {
     try {
+        console.log('Processing audio chunk...');
         const response = await fetch('/process_audio', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ audio: audioData }),
+            body: JSON.stringify({ audio: audioData })
         });
 
+        console.log('Server response status:', response.status);
         if (!response.ok) {
-            throw new Error(`Server returned ${response.status}: ${await response.text()}`);
+            const errorText = await response.text();
+            console.error('Server error:', response.status, errorText);
+            return;
         }
 
         const result = await response.json();
+        console.log('Server response:', result);
         
         if (result.error) {
-            console.error('Server error:', result.error);
+            console.error('Result error:', result.error);
             return;
         }
 
         if (result.transcript) {
-            console.log('Transcript:', result.transcript);
+            console.log('Got transcript:', result.transcript);
             addMessage(result.transcript, true);
         }
         
         if (result.response) {
-            console.log('Bot response:', result.response);
+            console.log('Got response:', result.response);
             addMessage(result.response, false);
             speakResponse(result.response);
         }
@@ -187,9 +195,9 @@ async function processAudioChunk(audioData) {
         return result;
     } catch (error) {
         console.error('Error processing audio:', error);
+        updateStatus('Error processing audio: ' + error.message);
     }
 }
-
 function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
