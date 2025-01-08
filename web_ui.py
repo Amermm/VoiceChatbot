@@ -21,19 +21,32 @@ def send_static(path):
 @app.route('/process_audio', methods=['POST'])
 def process_audio():
     try:
+        logger.info("Processing audio data")
+        if not request.is_json:
+            logger.error("Request is not JSON")
+            return jsonify({"error": "Request must be JSON"}), 400
+            
         audio_data = request.json.get('audio')
         if not audio_data:
             logger.error("No audio data received")
             return jsonify({"error": "No audio data received"}), 400
 
-        logger.info("Processing audio data")
+        logger.debug(f"Audio data length: {len(audio_data)}")
+        
+        # Process audio
         result = chatbot.process_audio_data(audio_data)
         
-        if result:
-            logger.info(f"Audio processing result: {result}")
-            return jsonify(result)
-        
-        return jsonify({"error": "Could not process audio"}), 400
+        # Log result or error
+        if result is None:
+            logger.error("Audio processing returned None")
+            return jsonify({"error": "Could not process audio"}), 400
+            
+        if "error" in result:
+            logger.error(f"Processing error: {result['error']}")
+            return jsonify(result), 400
+            
+        logger.info(f"Audio processing result: {result}")
+        return jsonify(result)
         
     except Exception as e:
         logger.error(f"Error processing audio: {e}")
