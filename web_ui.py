@@ -2,7 +2,13 @@ from flask import Flask, render_template, jsonify, request, Response
 from voice_core_v1 import VoiceChatBot
 import json
 import logging
-
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s:%(name)s:%(message)s',
+    datefmt='%b %d %I:%M:%S %p'
+)
+logger = logging.getLogger('web_ui')
 app = Flask(__name__)
 chatbot = VoiceChatBot()
 
