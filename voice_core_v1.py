@@ -144,27 +144,36 @@ class VoiceChatBot:
             self.logger.error(f"Error processing audio: {e}")
             return None
 
-    def get_gpt_response(self, query):
-        """Get GPT response with error handling"""
-        try:
-            messages = [
-                {"role": "system", "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses and use the available data when relevant."},
-                {"role": "system", "content": f"Available data context:\n{self.context_data}"},
-                {"role": "user", "content": query}
-            ]
+def get_gpt_response(self, query):
+    """Get GPT response with error handling"""
+    try:
+        self.logger.info(f"Sending query to GPT: {query}")
+        
+        client = openai.Client(api_key=self.openai_api_key)
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses and use the available data when relevant."
+                },
+                {
+                    "role": "system", 
+                    "content": f"Available data context:\n{self.context_data}"
+                },
+                {
+                    "role": "user", 
+                    "content": query
+                }
+            ],
+            max_tokens=150,
+            temperature=0.7
+        )
             
-            completion = openai.chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                max_tokens=150,
-                temperature=0.7,
-                presence_penalty=0.6
-            )
+        response = completion.choices[0].message.content.strip()
+        self.logger.info(f"GPT response: {response}")
+        return response
             
-            response = completion.choices[0].message.content.strip()
-            self.logger.info(f"GPT response: {response}")
-            return response
-            
-        except Exception as e:
-            self.logger.error(f"GPT Error: {e}")
-            return "I apologize, but I'm having trouble processing your request right now."
+    except Exception as e:
+        self.logger.error(f"GPT Error: {e}")
+        return "I apologize, but I'm having trouble processing your request right now."
