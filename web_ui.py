@@ -26,16 +26,10 @@ def stop_listening():
 @app.route('/process_audio', methods=['POST'])
 def process_audio():
     try:
-        logger.info("Processing audio data")
-        audio_data = request.data
-        logger.debug(f"Audio data length: {len(audio_data)}")
-        
-        result = chatbot.process_audio_data([audio_data])
-        if result is not None:
-            return jsonify(result)
-        else:
-            logger.error("Audio processing returned None")
-            return jsonify({"error": "Audio processing failed"}), 400
+        result = chatbot.process_audio_data()
+        if "error" in result:
+            return jsonify(result), 400
+        return jsonify(result), 200
     except Exception as e:
         logger.error(f"Error processing audio: {e}")
         return jsonify({"error": str(e)}), 500
