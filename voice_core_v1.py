@@ -22,18 +22,37 @@ class VoiceChatDebugger:
         self.logger = logging.getLogger(__name__)
         
     def _setup_apis(self):
-        """Setup API clients with validation"""
+    """Setup API clients with validation"""
+    try:
         # Validate OpenAI API key
         self.openai_key = os.getenv('OPENAI_API_KEY')
         if not self.openai_key:
             raise ValueError("OpenAI API key not found!")
         openai.api_key = self.openai_key
         
-        # Validate Google credentials
-        google_creds = os.getenv('GOOGLE_CREDENTIALS')
-        if not google_creds:
-            raise ValueError("Google credentials not found!")
+        # Handle Google credentials
+        google_creds_json = os.getenv('GOOGLE_CREDENTIALS')
+        if not google_creds_json:
+            raise ValueError("Google credentials not found in environment!")
             
+        # Write credentials to a temporary file
+        import tempfile
+        import json
+        
+        # Parse the JSON string to ensure it's valid
+        try:
+            json.loads(google_creds_json)
+        except json.JSONDecodeError:
+            raise ValueError("Invalid Google credentials JSON format")
+            
+        # Create a temporary file for credentials
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            temp_file.write(google_creds_json)
+            temp_creds_path = temp_file.name
+            
+        # Set the environment variable to point to our temporary file
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
+        
         # Initialize Speech client
         try:
             self.speech_client = speech.SpeechClient()
@@ -41,6 +60,10 @@ class VoiceChatDebugger:
         except Exception as e:
             self.logger.error(f"Failed to initialize Speech client: {e}")
             raise
+            
+    except Exception as e:
+        self.logger.error(f"Failed to setup APIs: {e}")
+        raise
 
 class VoiceChatBot(VoiceChatDebugger):
     def __init__(self):
