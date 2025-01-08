@@ -102,6 +102,8 @@ class VoiceChatBot:
             # Decode base64 audio data
             try:
                 audio_content = base64.b64decode(audio_data.split(',')[1])
+                if len(audio_content) < 1000:  # Skip very small audio chunks
+                    return None
             except Exception as e:
                 self.logger.error(f"Error decoding audio data: {e}")
                 return None
@@ -113,7 +115,9 @@ class VoiceChatBot:
                 sample_rate_hertz=48000,
                 language_code="en-US",
                 enable_automatic_punctuation=True,
-                use_enhanced=True
+                use_enhanced=True,
+                model="latest_long",  # Use the best available model
+                enable_word_confidence=True
             )
 
             response = self.speech_client.recognize(config=config, audio=audio)
@@ -124,6 +128,10 @@ class VoiceChatBot:
             transcript = response.results[0].alternatives[0].transcript
             self.logger.info(f"Transcribed: {transcript}")
             
+            # Only process if we have meaningful text
+            if not transcript or len(transcript.strip()) < 2:
+                return None
+                
             # Get GPT response
             gpt_response = self.get_gpt_response(transcript)
             
@@ -136,36 +144,27 @@ class VoiceChatBot:
             self.logger.error(f"Error processing audio: {e}")
             return None
 
-async def get_gpt_response(self, query):
-    """Get GPT response with error handling"""
-    try:
-        self.logger.info(f"Sending query to GPT: {query}")
-        response = await openai.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": f"You are {self.robot_name}, a helpful data assistant. Provide concise responses."},
-                {"role": "system", "content": f"Context data:\n{self.context_data}"},
-                {"role": "user", "content": query}
-            ],
-            max_tokens=150,
-            temperature=0.7
-        )
-        response_text = response.choices[0].message.content.strip()
-        self.logger.info(f"GPT response: {response_text}")
-        return response_text
-    except Exception as e:
-        self.logger.error(f"GPT Error: {e}")
-        return "Sorry, I couldn't process your request."
-
-def process_continuous_audio(self):
-    """
-    Generator function for processing continuous audio
-    Each client will get their own instance of this generator
-    """
-    while self.is_listening:
+    def get_gpt_response(self, query):
+        """Get GPT response with error handling"""
         try:
-            # Return empty result to keep connection alive
-            yield "data: {}\n\n"
+            messages = [
+                {"role": "system", "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses and use the available data when relevant."},
+                {"role": "system", "content": f"Available data context:\n{self.context_data}"},
+                {"role": "user", "content": query}
+            ]
+            
+            completion = openai.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                max_tokens=150,
+                temperature=0.7,
+                presence_penalty=0.6
+            )
+            
+            response = completion.choices[0].message.content.strip()
+            self.logger.info(f"GPT response: {response}")
+            return response
+            
         except Exception as e:
-            self.logger.error(f"Error in continuous processing: {e}")
-            yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
+            self.logger.error(f"GPT Error: {e}")
+            return "I apologize, but I'm having trouble processing your request right now."
