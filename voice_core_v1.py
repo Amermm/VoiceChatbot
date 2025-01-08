@@ -47,31 +47,57 @@ class VoiceChatBot:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
-    def process_audio_data(self, audio_data):
-        """Process audio data from client"""
+def process_audio_data(self, audio_data):
+    """Process audio data from client"""
+    try:
+        self.logger.info("Starting audio processing")
+        if not audio_data:
+            self.logger.error("No audio data received")
+            return None
+            
+        # Decode base64 audio data
         try:
-            # Decode base64 audio data
             decoded_audio = base64.b64decode(audio_data.split(',')[1])
-            
-            audio = speech.RecognitionAudio(content=decoded_audio)
-            config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-                sample_rate_hertz=48000,
-                language_code="en-US",
-                enable_automatic_punctuation=True
-            )
-
-            response = self.speech_client.recognize(config=config, audio=audio)
-            
-            if response.results:
-                transcript = response.results[0].alternatives[0].transcript
-                gpt_response = self.get_gpt_response(transcript)
-                return {"transcript": transcript, "response": gpt_response}
-            
-            return None
+            self.logger.info(f"Audio data decoded, size: {len(decoded_audio)}")
         except Exception as e:
-            self.logger.error(f"Error processing audio: {e}")
+            self.logger.error(f"Error decoding audio: {e}")
             return None
+
+        # Configure speech recognition
+        audio = speech.RecognitionAudio(content=decoded_audio)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+            sample_rate_hertz=48000,
+            language_code="en-US",
+            enable_automatic_punctuation=True,
+            model="default",  # Using default model for better general recognition
+            use_enhanced=True
+        )
+
+        # Process with Google Speech-to-Text
+        try:
+            self.logger.info("Sending request to Google Speech-to-Text")
+            response = self.speech_client.recognize(config=config, audio=audio)
+            self.logger.info("Received response from Google Speech-to-Text")
+            
+            if not response.results:
+                self.logger.warning("No transcription results")
+                return None
+
+            transcript = response.results[0].alternatives[0].transcript
+            self.logger.info(f"Transcribed text: {transcript}")
+            
+            # Get GPT response
+            gpt_response = self.get_gpt_response(transcript)
+            return {"transcript": transcript, "response": gpt_response}
+
+        except Exception as e:
+            self.logger.error(f"Speech-to-Text error: {e}")
+            return None
+
+    except Exception as e:
+        self.logger.error(f"Error in process_audio_data: {e}")
+        return None
 
     def get_gpt_response(self, query):
         try:
