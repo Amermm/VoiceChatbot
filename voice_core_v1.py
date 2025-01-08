@@ -8,7 +8,6 @@ import threading
 import queue
 import pyttsx3
 
-
 class VoiceChatBot:
     def __init__(self):
         logging.basicConfig(level=logging.INFO)
@@ -21,23 +20,23 @@ class VoiceChatBot:
         self.df = self._load_excel_data()
         self.recognizer = sr.Recognizer()
         self.speech_client = speech.SpeechClient()
+        self.is_listening = False
 
     def setup_environment(self):
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.google_credentials = os.getenv('GOOGLE_CREDENTIALS')
         self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
         self.robot_name = os.getenv('ROBOTNAME', 'AI Assistant')
-    
+
         # Write GOOGLE_CREDENTIALS to a file
         credentials_path = "/tmp/google_credentials.json"
         with open(credentials_path, "w") as cred_file:
             cred_file.write(self.google_credentials)
-    
+
         # Set Google Application Credentials
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-    
-        self.logger.info("Environment variables loaded successfully.")
 
+        self.logger.info("Environment variables loaded successfully.")
 
     def _load_excel_data(self):
         try:
@@ -54,6 +53,16 @@ class VoiceChatBot:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
+    def start_listening(self):
+        """Start listening for audio."""
+        self.is_listening = True
+        self.logger.info("Listening started.")
+
+    def stop_listening(self):
+        """Stop listening for audio."""
+        self.is_listening = False
+        self.logger.info("Listening stopped.")
+
     def listen_and_transcribe(self, audio_file_path=None):
         """Transcribe audio from a file or predefined input."""
         try:
@@ -63,7 +72,7 @@ class VoiceChatBot:
                     audio = self.recognizer.record(source)
             else:
                 raise ValueError("Audio file path must be provided for transcription.")
-    
+
             transcript = self.recognizer.recognize_google(audio)
             self.logger.info(f"Transcribed: {transcript}")
             return transcript
@@ -109,4 +118,3 @@ class VoiceChatBot:
             response = self.get_gpt_response(transcript)
             return {"transcript": transcript, "response": response}
         return {"error": "No valid transcription or response."}
-
