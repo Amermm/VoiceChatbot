@@ -136,23 +136,26 @@ class VoiceChatBot:
             self.logger.error(f"Error processing audio: {e}")
             return None
 
-    def get_gpt_response(self, query):
-        """Get GPT response with error handling"""
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": f"You are {self.robot_name}, a helpful data assistant. Provide concise responses."},
-                    {"role": "system", "content": f"Context data:\n{self.context_data}"},
-                    {"role": "user", "content": query}
-                ],
-                max_tokens=100,
-                temperature=0
-            )
-            return response.choices[0].message['content'].strip()
-        except Exception as e:
-            self.logger.error(f"GPT Error: {e}")
-            return "Sorry, I couldn't process your request."
+async def get_gpt_response(self, query):
+    """Get GPT response with error handling"""
+    try:
+        self.logger.info(f"Sending query to GPT: {query}")
+        response = await openai.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": f"You are {self.robot_name}, a helpful data assistant. Provide concise responses."},
+                {"role": "system", "content": f"Context data:\n{self.context_data}"},
+                {"role": "user", "content": query}
+            ],
+            max_tokens=150,
+            temperature=0.7
+        )
+        response_text = response.choices[0].message.content.strip()
+        self.logger.info(f"GPT response: {response_text}")
+        return response_text
+    except Exception as e:
+        self.logger.error(f"GPT Error: {e}")
+        return "Sorry, I couldn't process your request."
 
 def process_continuous_audio(self):
     """
