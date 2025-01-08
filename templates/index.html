@@ -98,7 +98,6 @@ function updateStatus(message) {
 
 async function startRecording() {
     try {
-        // Get audio stream
         audioStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 channelCount: 1,
@@ -109,31 +108,42 @@ async function startRecording() {
             }
         });
         
-        // Create MediaRecorder
+        // Create MediaRecorder with appropriate settings
         mediaRecorder = new MediaRecorder(audioStream, {
-            mimeType: 'audio/webm;codecs=opus',
+            mimeType: 'audio/webm',
             audioBitsPerSecond: 128000
         });
 
         // Handle data available event
         mediaRecorder.ondataavailable = async (event) => {
-            console.log('Data available:', event.data.size);
+            console.log('Audio data size:', event.data.size);
             if (event.data.size > 0) {
                 try {
-                    const audioBlob = new Blob([event.data], { type: 'audio/webm;codecs=opus' });
+                    const audioBlob = new Blob([event.data], { type: 'audio/webm' });
                     const base64Audio = await blobToBase64(audioBlob);
-                    console.log('Sending audio chunk, size:', audioBlob.size);
-                    await processAudioChunk(base64Audio);
+                    console.log('Processing audio chunk...');
+                    const result = await processAudioChunk(base64Audio);
+                    console.log('Processing result:', result);
                 } catch (error) {
                     console.error('Error processing chunk:', error);
                 }
             }
         };
 
-        // Start recording in 2-second chunks
-        mediaRecorder.start(2000);
-        console.log('MediaRecorder started');
-        voiceAnimation.style.display = 'flex';
+        // Handle recording start
+        mediaRecorder.onstart = () => {
+            console.log('Recording started');
+            voiceAnimation.style.display = 'flex';
+        };
+
+        // Handle recording stop
+        mediaRecorder.onstop = () => {
+            console.log('Recording stopped');
+            voiceAnimation.style.display = 'none';
+        };
+
+        // Start recording in smaller chunks for more responsive interaction
+        mediaRecorder.start(1000);
 
     } catch (err) {
         console.error('Error starting recording:', err);
@@ -144,7 +154,6 @@ async function startRecording() {
 
 async function processAudioChunk(audioData) {
     try {
-        console.log('Processing audio chunk');
         const response = await fetch('/process_audio', {
             method: 'POST',
             headers: {
@@ -158,7 +167,6 @@ async function processAudioChunk(audioData) {
         }
 
         const result = await response.json();
-        console.log('Server response:', result);
         
         if (result.error) {
             console.error('Server error:', result.error);
@@ -166,16 +174,19 @@ async function processAudioChunk(audioData) {
         }
 
         if (result.transcript) {
+            console.log('Transcript:', result.transcript);
             addMessage(result.transcript, true);
         }
+        
         if (result.response) {
+            console.log('Bot response:', result.response);
             addMessage(result.response, false);
             speakResponse(result.response);
         }
 
+        return result;
     } catch (error) {
         console.error('Error processing audio:', error);
-        updateStatus('Error processing audio: ' + error.message);
     }
 }
 
