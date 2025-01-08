@@ -1,8 +1,6 @@
 from flask import Flask, render_template, jsonify, request
-from voice_core_v2 import VoiceChatBot
+from voice_core_v1 import VoiceChatBot  # Changed from v2 to v1
 import logging
-import asyncio
-from functools import wraps
 
 app = Flask(__name__)
 chatbot = VoiceChatBot()
@@ -13,19 +11,12 @@ handler.setLevel(logging.DEBUG)
 app.logger.addHandler(handler)
 app.logger.setLevel(logging.DEBUG)
 
-def async_route(f):
-    @wraps(f)
-    def wrapped(*args, **kwargs):
-        return asyncio.run(f(*args, **kwargs))
-    return wrapped
-
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/process_audio', methods=['POST'])
-@async_route
-async def process_audio():
+def process_audio():
     try:
         # Log request details
         app.logger.info("Received audio processing request")
@@ -44,12 +35,13 @@ async def process_audio():
         
         # Process audio
         app.logger.info("Processing audio data...")
-        result = await chatbot.process_audio_data(audio_data)
+        result = chatbot.process_audio_data(audio_data)
         
         # Log result summary
-        if "error" in result:
-            app.logger.error(f"Processing error: {result['error']}")
-            return jsonify(result), 400
+        if result is None or (isinstance(result, dict) and "error" in result):
+            error_msg = result.get("error", "Unknown processing error") if isinstance(result, dict) else "Processing failed"
+            app.logger.error(f"Processing error: {error_msg}")
+            return jsonify({"error": error_msg}), 400
             
         app.logger.info("Audio processing successful")
         app.logger.debug(f"Result: {result}")
@@ -61,7 +53,7 @@ async def process_audio():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 @app.route('/start_listening', methods=['POST'])
-async def start_listening():
+def start_listening():
     try:
         result = chatbot.start_listening()
         app.logger.info("Started listening session")
@@ -71,7 +63,7 @@ async def start_listening():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/stop_listening', methods=['POST'])
-async def stop_listening():
+def stop_listening():
     try:
         result = chatbot.stop_listening()
         app.logger.info("Stopped listening session")
@@ -81,4 +73,6 @@ async def stop_listening():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    # Use the port from environment variable if available
+    port = int(os.environ.get('PORT', 8080))
+    app.run(debug=True, host='0.0.0.0', port=port)
