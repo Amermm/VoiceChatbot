@@ -92,32 +92,27 @@ class VoiceChatBot:
         self.is_listening = False
         self.logger.info("Stopped listening")
         return {"status": "stopped"}
-
+    
     def process_audio_data(self, audio_data):
         """Process audio data from the browser"""
         if not audio_data:
             self.logger.error("No audio data received")
             return None
-            
+    
         try:
             # Decode base64 audio data
-            try:
-                if ',' not in audio_data:
-                    self.logger.error("Invalid audio data format")
-                    return None
-                
-                audio_content = base64.b64decode(audio_data.split(',')[1])
-                content_size = len(audio_content)
-                self.logger.info(f"Decoded audio size: {content_size} bytes")
-                
-                if content_size < 1000:  # Skip very small audio chunks
-                    self.logger.info(f"Audio chunk too small ({content_size} bytes), skipping")
-                    return None
-                
-            except Exception as e:
-                self.logger.error(f"Error decoding audio data: {e}")
+            if ',' not in audio_data:
+                self.logger.error("Invalid audio data format")
                 return None
-
+    
+            audio_content = base64.b64decode(audio_data.split(',')[1])
+            content_size = len(audio_content)
+            self.logger.info(f"Decoded audio size: {content_size} bytes")
+    
+            if content_size < 1000:  # Skip very small audio chunks
+                self.logger.info(f"Audio chunk too small ({content_size} bytes), skipping")
+                return None
+    
             # Process with Google Speech-to-Text
             audio = speech.RecognitionAudio(content=audio_content)
             config = speech.RecognitionConfig(
@@ -128,58 +123,47 @@ class VoiceChatBot:
                 use_enhanced=True,
                 audio_channel_count=1
             )
-
+    
             self.logger.info(f"Sending {content_size} bytes to Speech-to-Text")
             try:
                 response = self.speech_client.recognize(config=config, audio=audio)
-                self.logger.info(f"Got Speech-to-Text response: {response}")
+                if not response.results:
+                    self.logger.info("No transcription results")
+                    return None
+                
+                transcript = response.results[0].alternatives[0].transcript
+                confidence = response.results[0].alternatives[0].confidence
+                
+                self.logger.info(f"Transcribed: '{transcript}' with confidence: {confidence}")
+    
+                if confidence < 0.6:
+                    self.logger.info(f"Low confidence ({confidence}), skipping")
+                    return None
+    
+                # Get GPT response
+                gpt_response = self.get_gpt_response(transcript)
+                return {
+                    "transcript": transcript,
+                    "response": gpt_response,
+                    "confidence": confidence
+                }
+    
             except Exception as e:
                 self.logger.error(f"Speech-to-Text API error: {e}")
                 return None
-                
-            if not response.results:
-                self.logger.info("No transcription results")
-                return None
-                
-            transcript = response.results[0].alternatives[0].transcript
-            confidence = response.results[0].alternatives[0].confidence
-                
-            self.logger.info(f"Transcribed: '{transcript}' with confidence: {confidence}")
-                
-            # Only process if confidence is high enough
-            if confidence < 0.6:
-                self.logger.info(f"Low confidence ({confidence}), skipping")
-                return None
-                
-            # Only process if we have meaningful text
-            if not transcript or len(transcript.strip()) < 2:
-                self.logger.info("Empty or too short transcript")
-                return None
-                
-            # Get GPT response
-            self.logger.info("Getting GPT response...")
-            gpt_response = self.get_gpt_response(transcript)
-            self.logger.info(f"Got GPT response: {gpt_response}")
-                
-            return {
-                "transcript": transcript,
-                "response": gpt_response,
-                "confidence": confidence
-            }
-
+    
         except Exception as e:
-            self.logger.error(f"Error processing audio: {str(e)}")
-            import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return None 
-
+            self.logger.error(f"Error processing audio: {e}")
+            return None
+     
+    
     def get_gpt_response(self, query):
         """Get GPT response with error handling"""
         try:
             self.logger.info(f"Sending query to GPT: {query}")
             
-            client = openai.Client(api_key=self.openai_api_key)
-            completion = client.chat.completions.create(
+            # Use the OpenAI ChatCompletion API
+            response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
                     {
@@ -198,11 +182,13 @@ class VoiceChatBot:
                 max_tokens=150,
                 temperature=0.7
             )
-                
-            response = completion.choices[0].message.content.strip()
-            self.logger.info(f"GPT response: {response}")
-            return response
-                
+            
+            # Extract the response content
+            response_content = response.choices[0].message.content.strip()
+            self.logger.info(f"GPT response: {response_content}")
+            return response_content
+    
         except Exception as e:
             self.logger.error(f"GPT Error: {e}")
             return "I apologize, but I'm having trouble processing your request right now."
+    
