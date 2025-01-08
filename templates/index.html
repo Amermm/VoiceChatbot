@@ -70,161 +70,239 @@
     </div>
 
     <script>
-        const chatBox = document.getElementById('chatBox');
-        const askButton = document.getElementById('askButton');
-        const endButton = document.getElementById('endButton');
-        const clearChatButton = document.getElementById('clearChatButton');
-        const hideViewButton = document.getElementById('hideViewButton');
-        const statusDiv = document.getElementById('status');
-        let isListening = false;
-        let mediaRecorder = null;
-        let audioChunks = [];
-        
-        function addMessage(text, isUser = false) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = isUser ? 'message user-message' : 'message bot-message';
-            messageDiv.textContent = text;
-            chatBox.appendChild(messageDiv);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-        
-        function updateStatus(message) {
-            statusDiv.textContent = message;
-        }
-        
-        async function startRecording() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        channelCount: 1,
-                        sampleRate: 48000,
-                        echoCancellation: true,
-                        noiseSuppression: true
-                    }
-                });
-                
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus'
-                });
-                
-                mediaRecorder.ondataavailable = async (event) => {
-                    if (event.data.size > 0) {
-                        const base64Audio = await blobToBase64(event.data);
-                        processAudioChunk(base64Audio);
-                    }
-                };
-        
-                mediaRecorder.onstart = () => {
-                    audioChunks = [];
-                    document.getElementById('voiceAnimation').style.display = 'flex';
-                };
-        
-                mediaRecorder.onerror = (event) => {
-                    console.error('MediaRecorder error:', event.error);
-                    updateStatus('Recording error: ' + event.error.message);
-                };
-        
-                mediaRecorder.start(2000); // Record in 2-second chunks
-                
-            } catch (err) {
-                console.error('Error starting recording:', err);
-                updateStatus('Error: ' + err.message);
-                throw err;
-            }
-        }
-        
-        async function processAudioChunk(audioData) {
-            try {
-                const response = await fetch('/process_audio', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ audio: audioData }),
-                });
-        
-                const result = await response.json();
-                
-                if (result.error) {
-                    console.error('Error:', result.error);
-                    return;
-                }
-        
-                if (result.transcript) {
-                    addMessage(result.transcript, true);
-                }
-                if (result.response) {
-                    addMessage(result.response, false);
-                    speakResponse(result.response);
-                }
-        
-            } catch (error) {
-                console.error('Error processing audio:', error);
-            }
-        }
-        
-        function blobToBase64(blob) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
-        }
-        
-        function speakResponse(text) {
-            const speech = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(speech);
-        }
-        
-        askButton.addEventListener('click', async () => {
-            if (!isListening) {
-                try {
-                    await fetch('/start_listening', { method: 'POST' });
-                    await startRecording();
-                    isListening = true;
-                    askButton.disabled = true;
-                    askButton.textContent = 'Listening...';
-                    updateStatus('Listening to your questions...');
-                } catch (err) {
-                    console.error('Error:', err);
-                    updateStatus('Error: ' + err.message);
-                }
+// Audio handling variables
+let mediaRecorder = null;
+let audioContext = null;
+let isListening = false;
+let silenceStart = null;
+let silenceThreshold = 0.015;
+let silenceTimeout = 1000;
+
+// DOM elements
+const chatBox = document.getElementById('chatBox');
+const askButton = document.getElementById('askButton');
+const endButton = document.getElementById('endButton');
+const clearChatButton = document.getElementById('clearChatButton');
+const hideViewButton = document.getElementById('hideViewButton');
+const statusDiv = document.getElementById('status');
+const voiceAnimation = document.getElementById('voiceAnimation');
+
+function addMessage(text, isUser = false) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = isUser ? 'message user-message' : 'message bot-message';
+    messageDiv.textContent = text;
+    chatBox.appendChild(messageDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function updateStatus(message) {
+    statusDiv.textContent = message;
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                channelCount: 1,
+                sampleRate: 48000,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
             }
         });
         
-        endButton.addEventListener('click', async () => {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                mediaRecorder.stream.getTracks().forEach(track => track.stop());
-            }
-            try {
-                await fetch('/stop_listening', { method: 'POST' });
-            } catch (err) {
-                console.error('Error stopping:', err);
-            }
-            isListening = false;
-            askButton.disabled = false;
-            askButton.textContent = 'Ask Me';
-            updateStatus('Chat stopped.');
-            document.getElementById('voiceAnimation').style.display = 'none';
+        audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyzer = audioContext.createAnalyser();
+        analyzer.fftSize = 512;
+        analyzer.minDecibels = -90;
+        analyzer.maxDecibels = -10;
+        analyzer.smoothingTimeConstant = 0.85;
+        source.connect(analyzer);
+
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm;codecs=opus',
+            audioBitsPerSecond: 128000
         });
+
+        let chunks = [];
         
-        clearChatButton.addEventListener('click', () => {
-            const voiceAnimation = document.getElementById('voiceAnimation');
-            chatBox.innerHTML = '';
-            chatBox.appendChild(voiceAnimation);
-        });
-        
-        hideViewButton.addEventListener('click', () => {
-            if (chatBox.style.display === 'none') {
-                chatBox.style.display = 'block';
-                hideViewButton.textContent = 'Hide View';
+        mediaRecorder.ondataavailable = async (event) => {
+            if (event.data.size > 0) {
+                chunks.push(event.data);
+                
+                // Create blob and send
+                const audioBlob = new Blob(chunks, { type: 'audio/webm;codecs=opus' });
+                const base64Audio = await blobToBase64(audioBlob);
+                await processAudioChunk(base64Audio);
+                chunks = []; // Clear chunks after processing
+            }
+        };
+
+        // Start recording with smaller time slices
+        mediaRecorder.start(1000);
+        voiceAnimation.style.display = 'flex';
+
+        // Setup silence detection
+        const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+        function checkAudioLevel() {
+            if (!isListening) return;
+            
+            analyzer.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            const normalizedValue = average / 256;
+
+            if (normalizedValue < silenceThreshold) {
+                if (!silenceStart) {
+                    silenceStart = Date.now();
+                } else if (Date.now() - silenceStart > silenceTimeout) {
+                    // Restart recording after silence
+                    mediaRecorder.stop();
+                    chunks = [];
+                    setTimeout(() => {
+                        if (isListening) {
+                            mediaRecorder.start(1000);
+                        }
+                    }, 100);
+                    silenceStart = null;
+                }
             } else {
-                chatBox.style.display = 'none';
-                hideViewButton.textContent = 'Show View';
+                silenceStart = null;
             }
+            
+            requestAnimationFrame(checkAudioLevel);
+        }
+        
+        checkAudioLevel();
+
+    } catch (err) {
+        console.error('Error starting recording:', err);
+        updateStatus('Error: ' + err.message);
+    }
+}
+
+async function processAudioChunk(audioData) {
+    try {
+        const response = await fetch('/process_audio', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ audio: audioData }),
         });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.error) {
+            console.error('Error:', result.error);
+            return;
+        }
+
+        if (result.transcript) {
+            addMessage(result.transcript, true);
+        }
+        if (result.response) {
+            addMessage(result.response, false);
+            speakResponse(result.response);
+        }
+
+    } catch (error) {
+        console.error('Error processing audio:', error);
+    }
+}
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+function speakResponse(text) {
+    if (!text) return;
+    
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    const speech = new SpeechSynthesisUtterance(text);
+    speech.rate = 1.0;
+    speech.pitch = 1.0;
+    speech.volume = 1.0;
+    
+    // Get available voices
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(voice => 
+        voice.lang === 'en-US' && voice.name.includes('Female')
+    ) || voices[0];
+    
+    if (preferredVoice) {
+        speech.voice = preferredVoice;
+    }
+    
+    window.speechSynthesis.speak(speech);
+}
+
+// Event Listeners
+askButton.addEventListener('click', async () => {
+    if (!isListening) {
+        try {
+            await fetch('/start_listening', { method: 'POST' });
+            isListening = true;
+            askButton.disabled = true;
+            askButton.textContent = 'Listening...';
+            updateStatus('Listening to your questions...');
+            await startRecording();
+        } catch (err) {
+            console.error('Error:', err);
+            updateStatus('Error: ' + err.message);
+        }
+    }
+});
+
+endButton.addEventListener('click', async () => {
+    isListening = false;
+    if (mediaRecorder) {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    }
+    if (audioContext) {
+        await audioContext.close();
+    }
+    try {
+        await fetch('/stop_listening', { method: 'POST' });
+    } catch (err) {
+        console.error('Error stopping:', err);
+    }
+    askButton.disabled = false;
+    askButton.textContent = 'Ask Me';
+    updateStatus('Chat stopped.');
+    voiceAnimation.style.display = 'none';
+});
+
+clearChatButton.addEventListener('click', () => {
+    while (chatBox.firstChild) {
+        if (chatBox.firstChild === voiceAnimation) {
+            break;
+        }
+        chatBox.removeChild(chatBox.firstChild);
+    }
+});
+
+hideViewButton.addEventListener('click', () => {
+    if (chatBox.style.display === 'none') {
+        chatBox.style.display = 'block';
+        hideViewButton.textContent = 'Hide View';
+    } else {
+        chatBox.style.display = 'none';
+        hideViewButton.textContent = 'Show View';
+    }
+});
     </script>
 </body>
 </html>
