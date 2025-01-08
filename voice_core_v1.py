@@ -5,8 +5,8 @@ import speech_recognition as sr
 from google.cloud import speech
 import logging
 import threading
-import queue
 import pyttsx3
+
 
 class VoiceChatBot:
     def __init__(self):
@@ -19,6 +19,7 @@ class VoiceChatBot:
         # Initialize components
         self.df = self._load_excel_data()
         self.recognizer = sr.Recognizer()
+        self.microphone = sr.Microphone()
         self.speech_client = speech.SpeechClient()
         self.is_listening = False
 
@@ -55,34 +56,46 @@ class VoiceChatBot:
 
     def start_listening(self):
         """Start listening for audio."""
+        if self.is_listening:
+            self.logger.warning("Already listening.")
+            return
+
         self.is_listening = True
         self.logger.info("Listening started.")
+        threading.Thread(target=self.listen_and_process, daemon=True).start()
 
     def stop_listening(self):
         """Stop listening for audio."""
         self.is_listening = False
         self.logger.info("Listening stopped.")
 
-    def listen_and_transcribe(self, audio_file_path=None):
-        """Transcribe audio from a file or predefined input."""
-        try:
-            if audio_file_path:
-                with sr.AudioFile(audio_file_path) as source:
-                    self.logger.info("Processing audio file...")
-                    audio = self.recognizer.record(source)
-            else:
-                raise ValueError("Audio file path must be provided for transcription.")
+    def listen_and_process(self):
+        """Continuously listen to the microphone and process audio."""
+        with self.microphone as source:
+            self.recognizer.adjust_for_ambient_noise(source)
+            self.logger.info("Microphone ready for input.")
 
-            transcript = self.recognizer.recognize_google(audio)
-            self.logger.info(f"Transcribed: {transcript}")
-            return transcript
-        except sr.UnknownValueError:
-            self.logger.error("Could not understand the audio.")
-        except sr.RequestError as e:
-            self.logger.error(f"SpeechRecognition API error: {e}")
-        except Exception as e:
-            self.logger.error(f"Error in listen_and_transcribe: {e}")
-        return None
+            while self.is_listening:
+                try:
+                    self.logger.info("Listening for speech...")
+                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                    transcript = self.recognizer.recognize_google(audio)
+                    self.logger.info(f"Transcribed: {transcript}")
+
+                    # Generate a response using GPT
+                    response = self.get_gpt_response(transcript)
+                    self.logger.info(f"Response: {response}")
+
+                    # Speak the response
+                    self.speak_response(response)
+                except sr.WaitTimeoutError:
+                    self.logger.warning("Listening timed out, no speech detected.")
+                except sr.UnknownValueError:
+                    self.logger.error("Could not understand the audio.")
+                except sr.RequestError as e:
+                    self.logger.error(f"SpeechRecognition API error: {e}")
+                except Exception as e:
+                    self.logger.error(f"Error during audio processing: {e}")
 
     def get_gpt_response(self, query):
         try:
@@ -111,18 +124,14 @@ class VoiceChatBot:
             self.logger.error(f"GPT Error: {e}")
             return "Sorry, I couldn't process your request."
 
-    def process_audio_data(self, audio_file_path):
-        try:
-            self.logger.info(f"Processing audio file: {audio_file_path}")
-            transcript = self.listen_and_transcribe(audio_file_path)
-            if not transcript:
-                self.logger.error("Transcription failed or returned None.")
-                return {"error": "Transcription failed."}
-            
-            response = self.get_gpt_response(transcript)
-            self.logger.info(f"Generated response: {response}")
-            return {"transcript": transcript, "response": response}
-        except Exception as e:
-            self.logger.error(f"Error in process_audio_data: {e}")
-            return {"error": str(e)}
+    def speak_response(self, response):
+        """Convert text to speech using pyttsx3."""
+        def tts_worker(response_text):
+            try:
+                engine = pyttsx3.init()
+                engine.say(response_text)
+                engine.runAndWait()
+            except Exception as e:
+                self.logger.error(f"TTS Error: {e}")
 
+        threading.Thread(target=tts_worker, args=(response,), daemon=True).start()
