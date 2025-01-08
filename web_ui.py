@@ -35,7 +35,7 @@ def process_audio():
         app.logger.error("Could not process audio")
         return jsonify({"error": "Could not process audio"}), 400
     except Exception as e:
-        app.logger.error(f"Error processing audio: {str(e)}")
+        app.logger.error(f"Error processing audio: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/start_listening', methods=['POST'])
