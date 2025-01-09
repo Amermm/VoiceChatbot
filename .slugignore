@@ -10,3 +10,15 @@ __pycache__/
 /examples/
 /TestingFiles/
 /Pics/
+*.log
+*.txt
+!requirements.txt
+*.DS_Store
+/node_modules/
+/.venv/
+*.zip
+*.gz
+*.tar
+*.7z
+/static/unused/
+/static/test/
