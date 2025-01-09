@@ -1,7 +1,7 @@
 name: Deploy to Google App Engine
 
 on:
-  workflow_dispatch:  # Trigger manually
+  workflow_dispatch:  # Allows manual triggers
   push:
     branches:
       - main  # Automatically deploy on push to the main branch
@@ -10,19 +10,26 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
     # Step 1: Check out the repository
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Step 2: Authenticate Service Account
-    - name: Authenticate Service Account
-      run: |
-        echo "${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}" > /tmp/key.json
-        gcloud auth activate-service-account --key-file=/tmp/key.json
-        gcloud config set project ${{ secrets.GCLOUD_PROJECT }}
+    # Step 2: Authenticate with Workload Identity Federation
+    - name: Authenticate with Workload Identity Federation
+      uses: google-github-actions/auth@v0
+      with:
+        workload_identity_provider: "projects/328201804495/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+        service_account: "github-voicechat-deploy@intense-crow-445809-h2.iam.gserviceaccount.com"
 
-    # Step 3: Deploy to App Engine
+    # Step 3: Set Google Cloud Project
+    - name: Set Google Cloud Project
+      run: gcloud config set project intense-crow-445809-h2
+
+    # Step 4: Deploy to Google App Engine
     - name: Deploy to App Engine
-      run: |
-        gcloud app deploy app.yaml --quiet
+      run: gcloud app deploy app.yaml --quiet
