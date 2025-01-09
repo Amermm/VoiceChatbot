@@ -6,3 +6,5 @@ numpy==2.2.1
 pandas==2.2.3
 gevent==24.11.1
 gevent-websocket==0.10.1
+openpyxl
+gunicorn==20.1.0
