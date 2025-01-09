@@ -5,51 +5,95 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice Chatbot</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
 <body>
     <div class="container">
+        <!-- Robot side remains the same -->
         <div class="robot-side">
-            <div class="robot-face">
-                <img src="{{ url_for('static', filename='animations/Chatbotframe.png') }}" alt="Robot" class="robot-image">
-                <div class="robot-screen">
-                    <div class="screen-bars">
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                    </div>
-                </div>
-                <div class="robot-title">SmartVoiceBot</div>
-            </div>
+            <!-- ... previous robot HTML ... -->
         </div>
 
         <div class="chat-container">
             <div class="chat-controls">
                 <button id="clearChatButton" class="btn">Clear Chat</button>
+                <button id="hideViewButton" class="btn">Hide View</button>
             </div>
-            <div class="chat-box" id="chatBox"></div>
+            <div class="chat-box" id="chatBox">
+                <div class="voice-animation" id="voiceAnimation" style="display: none;">
+                    <!-- ... voice animation HTML ... -->
+                </div>
+            </div>
             <div class="controls">
-                <button id="startButton" class="btn">Start</button>
-                <button id="stopButton" class="btn" disabled>Stop</button>
+                <button id="askButton" class="btn">Ask Me</button>
+                <button id="endButton" class="btn">End Chat</button>
             </div>
             <div id="status" class="status-message"></div>
         </div>
     </div>
 
     <script>
-        const startButton = document.getElementById('startButton');
-        const stopButton = document.getElementById('stopButton');
-        const statusDiv = document.getElementById('status');
-        const chatBox = document.getElementById('chatBox');
-        let websocket = null;
-        let audioContext = null;
-        let mediaRecorder = null;
+        let socket;
+        let mediaRecorder;
+        let audioChunks = [];
+        let isListening = false;
+
+        // Initialize socket connection
+        function initializeSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            socket = io();
+
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                updateStatus('Connected to server');
+            });
+
+            socket.on('bot_response', (data) => {
+                if (data.transcript) {
+                    addMessage(data.transcript, true);
+                }
+                if (data.response) {
+                    addMessage(data.response, false);
+                }
+            });
+
+            socket.on('error', (error) => {
+                console.error('Error:', error);
+                updateStatus('Error: ' + error.message);
+            });
+        }
+
+        // Initialize audio recording
+        async function initializeAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        // Convert to base64 and send to server
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const base64data = reader.result.split(',')[1];
+                            socket.emit('audio_data', base64data);
+                        };
+                        reader.readAsDataURL(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    audioChunks = [];
+                };
+
+                return true;
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                updateStatus('Error accessing microphone: ' + error.message);
+                return false;
+            }
+        }
 
         function addMessage(text, isUser = false) {
             const messageDiv = document.createElement('div');
@@ -60,95 +104,57 @@
         }
 
         function updateStatus(message) {
-            statusDiv.textContent = message;
+            document.getElementById('status').textContent = message;
         }
 
-        startButton.addEventListener('click', async () => {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                updateStatus('Microphone access is not supported in this browser.');
-                return;
+        async function startListening() {
+            if (!socket) {
+                initializeSocket();
+            }
+            
+            if (!mediaRecorder) {
+                const initialized = await initializeAudio();
+                if (!initialized) return;
             }
 
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const input = audioContext.createMediaStreamSource(stream);
-                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+            isListening = true;
+            document.getElementById('askButton').disabled = true;
+            document.getElementById('askButton').textContent = 'Listening...';
+            document.getElementById('voiceAnimation').style.display = 'flex';
+            updateStatus('Listening to your questions...');
 
-                processor.onaudioprocess = (event) => {
-                    const audioData = event.inputBuffer.getChannelData(0);
-                    const int16Array = Float32ArrayToInt16(audioData);
-                    const base64AudioData = arrayBufferToBase64(int16Array.buffer);
+            mediaRecorder.start(1000); // Send data every second
+            socket.emit('start_listening');
+        }
 
-                    if (websocket && websocket.readyState === WebSocket.OPEN) {
-                        websocket.send(base64AudioData);
-                    }
-                };
+        function stopListening() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            isListening = false;
+            document.getElementById('askButton').disabled = false;
+            document.getElementById('askButton').textContent = 'Ask Me';
+            document.getElementById('voiceAnimation').style.display = 'none';
+            updateStatus('Chat ended');
+            socket.emit('stop_listening');
+        }
 
-                input.connect(processor);
-                processor.connect(audioContext.destination);
-
-                websocket = new WebSocket('ws://' + window.location.host + '/audio');
-
-                websocket.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    if (data.transcript) {
-                        addMessage(data.transcript, true);
-                    }
-                    if (data.response) {
-                        addMessage(data.response, false);
-                    }
-                };
-
-                websocket.onopen = () => {
-                    updateStatus('Connected to server. Listening...');
-                    startButton.disabled = true;
-                    stopButton.disabled = false;
-                };
-
-                websocket.onclose = () => {
-                    updateStatus('Disconnected from server.');
-                };
-
-                websocket.onerror = (error) => {
-                    updateStatus(`WebSocket error: ${error.message}`);
-                };
-
-                mediaRecorder = processor;
-            } catch (error) {
-                updateStatus(`Error accessing microphone: ${error.message}`);
+        // Event Listeners
+        document.getElementById('askButton').addEventListener('click', () => {
+            if (!isListening) {
+                startListening();
             }
         });
 
-        stopButton.addEventListener('click', () => {
-            if (websocket) {
-                websocket.close();
+        document.getElementById('endButton').addEventListener('click', () => {
+            if (isListening) {
+                stopListening();
             }
-            if (audioContext) {
-                audioContext.close();
-            }
-
-            updateStatus('Stopped.');
-            startButton.disabled = false;
-            stopButton.disabled = true;
+            updateStatus('Chat stopped.');
         });
 
-        function Float32ArrayToInt16(float32Array) {
-            const int16Array = new Int16Array(float32Array.length);
-            for (let i = 0; i < float32Array.length; i++) {
-                int16Array[i] = Math.min(1, float32Array[i]) * 0x7FFF;
-            }
-            return int16Array;
-        }
-
-        function arrayBufferToBase64(buffer) {
-            let binary = '';
-            const bytes = new Uint8Array(buffer);
-            for (let i = 0; i < bytes.length; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return window.btoa(binary);
-        }
+        // Initialize socket connection when page loads
+        initializeSocket();
     </script>
 </body>
 </html>
