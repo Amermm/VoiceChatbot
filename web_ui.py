@@ -36,8 +36,9 @@ def audio(ws):
             ws.send(json.dumps({"error": str(e)}))
 
 if __name__ == '__main__':
-    from gevent import pywsgi
-    from geventwebsocket.handler import WebSocketHandler
+    port = int(os.environ.get('PORT', 5000))
+    server = pywsgi.WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
+    server.serve_forever()
     port = int(os.environ.get('PORT', 5000))
     server = pywsgi.WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
     server.serve_forever()
