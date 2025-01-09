@@ -2,8 +2,8 @@ Flask==2.0.1
 flask-socketio==5.3.0
 google-cloud-speech==2.12.0
 openai==0.27.0
-pandas==1.4.0 --no-build-isolation
-PyAudio==0.2.11 --no-build-isolation
+pandas==1.4.0
+PyAudio==0.2.11
 pyttsx3==2.90
 openpyxl==3.0.9
 Werkzeug==2.0.1
