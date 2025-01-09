@@ -11,9 +11,6 @@ __pycache__/
 /TestingFiles/
 /Pics/
 *.log
-*.txt
-!requirements.txt
-*.DS_Store
 /node_modules/
 /.venv/
 *.zip
