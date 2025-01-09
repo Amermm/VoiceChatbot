@@ -21,7 +21,7 @@ jobs:
 
     # Step 2: Authenticate with Workload Identity Federation
     - name: Authenticate with Workload Identity Federation
-      uses: google-github-actions/auth@v0
+      uses: google-github-actions/auth@v1
       with:
         workload_identity_provider: "projects/328201804495/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
         service_account: "github-voicechat-deploy@intense-crow-445809-h2.iam.gserviceaccount.com"
