@@ -1,43 +1,59 @@
 import os
 import openai
 import pandas as pd
-import speech_recognition as sr
 from google.cloud import speech
-import logging
+import pyaudio
+import wave
 import threading
+import queue
+import time
+from datetime import datetime
+import logging
+import numpy as np
 import pyttsx3
-
+import json
 
 class VoiceChatBot:
     def __init__(self):
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
-        # Load configuration from environment variables
-        self.setup_environment()
+        # Load environment variables
+        self.openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self.google_credentials_json = os.environ.get("GOOGLE_CREDENTIALS")
+        self.database_excel_path = os.environ.get("DATABASE_EXCEL_PATH")
+        self.robot_name = os.environ.get("ROBOTNAME", "VoiceBot")
+
+        # Initialize OpenAI API key
+        openai.api_key = self.openai_api_key
+
+        # Set up Google credentials
+        self.setup_google_credentials()
+
+        # Audio settings
+        self.RATE = 16000
+        self.CHUNK = 1024
+        self.FORMAT = pyaudio.paInt16
+        self.CHANNELS = 1
 
         # Initialize components
         self.df = self._load_excel_data()
-        self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
         self.speech_client = speech.SpeechClient()
+
+        # Streaming components
         self.is_listening = False
+        self.audio_queue = queue.Queue()
+        self.p = None
+        self.stream = None
 
-    def setup_environment(self):
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        self.google_credentials = os.getenv('GOOGLE_CREDENTIALS')
-        self.database_excel_path = os.getenv('DATABASE_EXCEL_PATH')
-        self.robot_name = os.getenv('ROBOTNAME', 'AI Assistant')
-
-        # Write GOOGLE_CREDENTIALS to a file
-        credentials_path = "/tmp/google_credentials.json"
-        with open(credentials_path, "w") as cred_file:
-            cred_file.write(self.google_credentials)
-
-        # Set Google Application Credentials
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-
-        self.logger.info("Environment variables loaded successfully.")
+    def setup_google_credentials(self):
+        try:
+            credentials_path = "google_credentials.json"
+            with open(credentials_path, "w") as f:
+                f.write(self.google_credentials_json)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        except Exception as e:
+            self.logger.error(f"Error setting up Google credentials: {e}")
 
     def _load_excel_data(self):
         try:
@@ -54,70 +70,53 @@ class VoiceChatBot:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
-    def start_listening(self):
-        """Start listening for audio."""
-        if self.is_listening:
-            self.logger.warning("Already listening.")
-            return
+    def process_audio_data(self, audio_data):
+        if not audio_data:
+            return None
 
-        self.is_listening = True
-        self.logger.info("Listening started.")
-        threading.Thread(target=self.listen_and_process, daemon=True).start()
+        # Convert audio data to wav file
+        temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        with wave.open(temp_filename, 'wb') as wf:
+            wf.setnchannels(self.CHANNELS)
+            wf.setsampwidth(self.p.get_sample_size(self.FORMAT))
+            wf.setframerate(self.RATE)
+            wf.writeframes(b''.join(audio_data))
 
-    def stop_listening(self):
-        """Stop listening for audio."""
-        self.is_listening = False
-        self.logger.info("Listening stopped.")
+        try:
+            with open(temp_filename, 'rb') as f:
+                content = f.read()
 
-    def listen_and_process(self):
-        """Continuously listen to the microphone and process audio."""
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source)
-            self.logger.info("Microphone ready for input.")
+            audio = speech.RecognitionAudio(content=content)
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=self.RATE,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+                use_enhanced=True
+            )
 
-            while self.is_listening:
-                try:
-                    self.logger.info("Listening for speech...")
-                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                    transcript = self.recognizer.recognize_google(audio)
-                    self.logger.info(f"Transcribed: {transcript}")
+            response = self.speech_client.recognize(config=config, audio=audio)
 
-                    # Generate a response using GPT
-                    response = self.get_gpt_response(transcript)
-                    self.logger.info(f"Response: {response}")
+            for result in response.results:
+                return result.alternatives[0].transcript
 
-                    # Speak the response
-                    self.speak_response(response)
-                except sr.WaitTimeoutError:
-                    self.logger.warning("Listening timed out, no speech detected.")
-                except sr.UnknownValueError:
-                    self.logger.error("Could not understand the audio.")
-                except sr.RequestError as e:
-                    self.logger.error(f"SpeechRecognition API error: {e}")
-                except Exception as e:
-                    self.logger.error(f"Error during audio processing: {e}")
+        finally:
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)
+
+        return None
 
     def get_gpt_response(self, query):
         try:
-            openai.api_key = self.openai_api_key
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": f"You are {self.robot_name}, a helpful AI assistant. Provide clear, concise responses."
-                    },
-                    {
-                        "role": "system",
-                        "content": f"Available data context:\n{self.context_data}"
-                    },
-                    {
-                        "role": "user",
-                        "content": query
-                    }
+                    {"role": "system", "content": "You are a helpful data assistant. Provide concise responses."},
+                    {"role": "system", "content": f"Context data:\n{self.context_data}"},
+                    {"role": "user", "content": query}
                 ],
-                max_tokens=150,
-                temperature=0.7
+                max_tokens=100,
+                temperature=0
             )
             return response.choices[0].message['content'].strip()
         except Exception as e:
@@ -134,4 +133,6 @@ class VoiceChatBot:
             except Exception as e:
                 self.logger.error(f"TTS Error: {e}")
 
-        threading.Thread(target=tts_worker, args=(response,), daemon=True).start()
+        tts_thread = threading.Thread(target=tts_worker, args=(response,))
+        tts_thread.daemon = True
+        tts_thread.start()
