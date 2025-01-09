@@ -4,7 +4,7 @@ on:
   workflow_dispatch:  # Manual trigger
   push:
     branches:
-      - main  # Deploy only on the main branch 
+      - main  # Deploy only on the main branch v2
 
 jobs:
   deploy:
