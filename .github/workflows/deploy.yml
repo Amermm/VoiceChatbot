@@ -1,0 +1,31 @@
+name: Deploy to Google App Engine
+
+on:
+  push:
+    branches:
+      - main  # Trigger deployment when pushing to the main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Set up Google Cloud SDK
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ secrets.GCLOUD_PROJECT }}
+        service_account_key: ${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}
+
+    # Authenticate Docker with Google Container Registry
+    - name: Authenticate Docker
+      run: gcloud auth configure-docker
+
+    # Deploy to App Engine
+    - name: Deploy to App Engine
+      run: |
+        gcloud app deploy app.yaml --quiet
