@@ -1,29 +1,28 @@
 name: Deploy to Google App Engine
 
 on:
- workflow_dispatch:
+  workflow_dispatch: # Manual trigger (to avoid automatic deployments)
+  push:
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # Checkout the code
+    # Step 1: Check out the repository
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Set up Google Cloud SDK
+    # Step 2: Set up Google Cloud SDK
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
       with:
-        project_id: ${{ secrets.GCLOUD_PROJECT }}
-        service_account_key: ${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}
+        project_id: ${{ secrets.GCLOUD_PROJECT }}  # Google Cloud Project ID
+        service_account_key: ${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}  # Service account key from GitHub Secrets
 
-    # Authenticate Docker with Google Container Registry
-    - name: Authenticate Docker
-      run: gcloud auth configure-docker
-
-    # Deploy to App Engine
+    # Step 3: Deploy to App Engine
     - name: Deploy to App Engine
       run: |
         gcloud app deploy app.yaml --quiet
