@@ -2,12 +2,11 @@ Flask==2.0.1
 flask-socketio==5.3.0
 google-cloud-speech==2.12.0
 openai==0.27.0
-pandas==1.4.0
+pandas==1.5.3  # Using a version with pre-built wheels for Python 3.11
 PyAudio==0.2.11
 pyttsx3==2.90
 openpyxl==3.0.9
 Werkzeug==2.0.1
 gunicorn==20.1.0
-gevent-websocket==0.10.1
-gevent==23.9.1
 eventlet==0.33.3
+numpy==1.24.3  # Adding explicit numpy version compatible with pandas
