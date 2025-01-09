@@ -32,51 +32,24 @@
         <div class="chat-container">
             <div class="chat-controls">
                 <button id="clearChatButton" class="btn">Clear Chat</button>
-                <button id="hideViewButton" class="btn">Hide View</button>
             </div>
-            <div class="chat-box" id="chatBox">
-                <div class="voice-animation" id="voiceAnimation" style="display: none;">
-                    <div class="voice-bars">
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                        <div class="bar"></div>
-                    </div>
-                    <span class="listening-text">Listening...</span>
-                </div>
-                <!-- Welcome Message -->
-                <div class="message bot-message">
-                    Hello! I'm SmartVoiceBot. Click "Ask Me" to start a conversation.
-                </div>
-            </div>
+            <div class="chat-box" id="chatBox"></div>
             <div class="controls">
-                <button id="askButton" class="btn">Ask Me</button>
-                <button id="endButton" class="btn">End Chat</button>
+                <button id="startButton" class="btn">Start</button>
+                <button id="stopButton" class="btn" disabled>Stop</button>
             </div>
-            <div id="status" class="status-message">Ready to chat!</div>
+            <div id="status" class="status-message"></div>
         </div>
     </div>
 
     <script>
-        // Variables
-        let mediaRecorder = null;
-        let audioStream = null;
-        let isListening = false;
-
-        // DOM Elements
-        const chatBox = document.getElementById('chatBox');
-        const askButton = document.getElementById('askButton');
-        const endButton = document.getElementById('endButton');
-        const clearChatButton = document.getElementById('clearChatButton');
-        const hideViewButton = document.getElementById('hideViewButton');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
         const statusDiv = document.getElementById('status');
-        const voiceAnimation = document.getElementById('voiceAnimation');
+        const chatBox = document.getElementById('chatBox');
+        let websocket = null;
+        let audioContext = null;
+        let mediaRecorder = null;
 
         function addMessage(text, isUser = false) {
             const messageDiv = document.createElement('div');
@@ -88,223 +61,94 @@
 
         function updateStatus(message) {
             statusDiv.textContent = message;
-            console.log('Status:', message);
         }
 
-        async function startRecording() {
-            try {
-                console.log('Starting recording...');
-                audioStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        channelCount: 1,
-                        sampleRate: 48000,
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-                console.log('Got audio stream:', audioStream);
-                
-                // Create MediaRecorder
-                mediaRecorder = new MediaRecorder(audioStream, {
-                    mimeType: 'audio/webm;codecs=opus',
-                    audioBitsPerSecond: 128000
-                });
-                console.log('Created MediaRecorder');
-
-                // Handle data available event
-                mediaRecorder.ondataavailable = async (event) => {
-                    console.log('Data available:', event.data.size, 'bytes');
-                    if (event.data.size > 0) {
-                        try {
-                            const audioBlob = new Blob([event.data], { type: 'audio/webm;codecs=opus' });
-                            const base64Audio = await blobToBase64(audioBlob);
-                            console.log('Audio blob created, size:', audioBlob.size);
-                            await processAudioChunk(base64Audio);
-                        } catch (error) {
-                            console.error('Error processing chunk:', error);
-                        }
-                    }
-                };
-
-                // Handle recording start
-                mediaRecorder.onstart = () => {
-                    console.log('MediaRecorder started');
-                    voiceAnimation.style.display = 'flex';
-                };
-
-                // Handle recording stop
-                mediaRecorder.onstop = () => {
-                    console.log('MediaRecorder stopped');
-                    voiceAnimation.style.display = 'none';
-                };
-
-                // Start recording in smaller chunks
-                mediaRecorder.start(1000);
-                console.log('Started MediaRecorder');
-
-            } catch (err) {
-                console.error('Error starting recording:', err);
-                updateStatus('Error: ' + err.message);
-                throw err;
+        startButton.addEventListener('click', async () => {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                updateStatus('Microphone access is not supported in this browser.');
+                return;
             }
-        }
 
-        async function processAudioChunk(audioData) {
             try {
-                console.log('Processing audio chunk...');
-                const response = await fetch('/process_audio', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ audio: audioData })
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const input = audioContext.createMediaStreamSource(stream);
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-                console.log('Server response status:', response.status);
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Server error:', response.status, errorText);
-                    return;
-                }
+                processor.onaudioprocess = (event) => {
+                    const audioData = event.inputBuffer.getChannelData(0);
+                    const int16Array = Float32ArrayToInt16(audioData);
+                    const base64AudioData = arrayBufferToBase64(int16Array.buffer);
 
-                const result = await response.json();
-                console.log('Server response:', result);
-                
-                if (result.error) {
-                    console.error('Result error:', result.error);
-                    return;
-                }
+                    if (websocket && websocket.readyState === WebSocket.OPEN) {
+                        websocket.send(base64AudioData);
+                    }
+                };
 
-                if (result.transcript) {
-                    console.log('Got transcript:', result.transcript);
-                    addMessage(result.transcript, true);
-                }
-                
-                if (result.response) {
-                    console.log('Got response:', result.response);
-                    addMessage(result.response, false);
-                    speakResponse(result.response);
-                }
+                input.connect(processor);
+                processor.connect(audioContext.destination);
 
-                return result;
+                websocket = new WebSocket('ws://' + window.location.host + '/audio');
+
+                websocket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.transcript) {
+                        addMessage(data.transcript, true);
+                    }
+                    if (data.response) {
+                        addMessage(data.response, false);
+                    }
+                };
+
+                websocket.onopen = () => {
+                    updateStatus('Connected to server. Listening...');
+                    startButton.disabled = true;
+                    stopButton.disabled = false;
+                };
+
+                websocket.onclose = () => {
+                    updateStatus('Disconnected from server.');
+                };
+
+                websocket.onerror = (error) => {
+                    updateStatus(`WebSocket error: ${error.message}`);
+                };
+
+                mediaRecorder = processor;
             } catch (error) {
-                console.error('Error processing audio:', error);
-                updateStatus('Error processing audio: ' + error.message);
-            }
-        }
-
-        function blobToBase64(blob) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
-        }
-
-        function speakResponse(text) {
-            if (!text) return;
-            
-            // Cancel any ongoing speech
-            window.speechSynthesis.cancel();
-            
-            const speech = new SpeechSynthesisUtterance(text);
-            speech.rate = 1.0;
-            speech.pitch = 1.0;
-            speech.volume = 1.0;
-            
-            // Get available voices
-            const voices = window.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(voice => 
-                voice.lang === 'en-US' && voice.name.includes('Female')
-            ) || voices[0];
-            
-            if (preferredVoice) {
-                speech.voice = preferredVoice;
-            }
-            
-            window.speechSynthesis.speak(speech);
-        }
-
-        async function stopRecording() {
-            console.log('Stopping recording...');
-            isListening = false;
-            
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-            }
-            
-            if (audioStream) {
-                audioStream.getTracks().forEach(track => track.stop());
-            }
-            
-            try {
-                await fetch('/stop_listening', { method: 'POST' });
-                console.log('Stop listening request sent');
-            } catch (err) {
-                console.error('Error stopping:', err);
-            }
-            
-            askButton.disabled = false;
-            askButton.textContent = 'Ask Me';
-            updateStatus('Chat stopped.');
-            voiceAnimation.style.display = 'none';
-            
-            // Clear references
-            mediaRecorder = null;
-            audioStream = null;
-        }
-
-        // Event Listeners
-        askButton.addEventListener('click', async () => {
-            if (!isListening) {
-                try {
-                    isListening = true;
-                    askButton.disabled = true;
-                    askButton.textContent = 'Listening...';
-                    updateStatus('Listening to your questions...');
-                    await fetch('/start_listening', { method: 'POST' });
-                    await startRecording();
-                } catch (err) {
-                    console.error('Error:', err);
-                    updateStatus('Error: ' + err.message);
-                    isListening = false;
-                    askButton.disabled = false;
-                    askButton.textContent = 'Ask Me';
-                }
+                updateStatus(`Error accessing microphone: ${error.message}`);
             }
         });
 
-        endButton.addEventListener('click', stopRecording);
-
-        clearChatButton.addEventListener('click', () => {
-            while (chatBox.firstChild) {
-                if (chatBox.firstChild === voiceAnimation) {
-                    break;
-                }
-                chatBox.removeChild(chatBox.firstChild);
+        stopButton.addEventListener('click', () => {
+            if (websocket) {
+                websocket.close();
             }
-            // Add back welcome message
-            addMessage("Hello! I'm SmartVoiceBot. Click 'Ask Me' to start a conversation.", false);
+            if (audioContext) {
+                audioContext.close();
+            }
+
+            updateStatus('Stopped.');
+            startButton.disabled = false;
+            stopButton.disabled = true;
         });
 
-        hideViewButton.addEventListener('click', () => {
-            if (chatBox.style.display === 'none') {
-                chatBox.style.display = 'block';
-                hideViewButton.textContent = 'Hide View';
-            } else {
-                chatBox.style.display = 'none';
-                hideViewButton.textContent = 'Show View';
+        function Float32ArrayToInt16(float32Array) {
+            const int16Array = new Int16Array(float32Array.length);
+            for (let i = 0; i < float32Array.length; i++) {
+                int16Array[i] = Math.min(1, float32Array[i]) * 0x7FFF;
             }
-        });
+            return int16Array;
+        }
 
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-            if (isListening) {
-                stopRecording();
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
             }
-        });
+            return window.btoa(binary);
+        }
     </script>
 </body>
 </html>
