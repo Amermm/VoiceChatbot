@@ -1,10 +1,6 @@
-Flask==3.1.0
-flask-sockets==0.2.1
-openai==1.59.5
-google-cloud-speech==2.30.0
-numpy==2.2.1
-pandas==2.2.3
-gevent==24.11.1
-gevent-websocket==0.10.1
-openpyxl
-gunicorn==20.1.0
+Flask
+openai
+pandas
+google-cloud-speech
+pyaudio
+pyttsx3
