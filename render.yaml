@@ -1,20 +1,15 @@
 services:
   - type: web
-    name: voice-chatbot
+    name: voicechatbot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python web_ui.py
     envVars:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      GOOGLE_CREDENTIALS: ${GOOGLE_CREDENTIALS}
-      DATABASE_EXCEL_PATH: ${DATABASE_EXCEL_PATH}
-      ROBOTNAME: ${ROBOTNAME}
-    static:
-      - path: /static
-        destination: static
-      - path: /templates
-        destination: templates
-
-files:
-  - source: .
-    destination: /app
+      - key: GOOGLE_CREDENTIALS
+        sync: false
+      - key: DATABASE_EXCEL_PATH
+        value: /app/SCADA TestData.xlsx
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ROBOTNAME
+        value: Royal
