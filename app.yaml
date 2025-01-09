@@ -1,25 +1,32 @@
-runtime: python39
+runtime: python39  # Specifies the Python runtime version
 
-entrypoint: python web_ui.py
+entrypoint: gunicorn -b :$PORT web_ui:app  # Flask app entry point (update if necessary)
 
-# Automatic scaling configuration
-instance_class: F2
-automatic_scaling:
-  target_cpu_utilization: 0.65
-  target_throughput_utilization: 0.60
-  max_instances: 5
+env_variables:  # Define environment variables required for your app
+  DATABASEEXCEL_PATH: ${DATABASEEXCEL_PATH}  # Path to the database file
+  GCLOUD_DEPLOY_SERVICE_KEY: ${GCLOUD_DEPLOY_SERVICE_KEY}  # GCloud deployment key
+  GCLOUD_PROJECT: ${GCLOUD_PROJECT}  # GCloud project ID
+  GOOGLE_CREDENTIALS: ${GOOGLE_CREDENTIALS}  # JSON content for Google services
+  OPENAI_KEY: ${OPENAI_KEY}  # OpenAI API key
+  ROBOTNAME: ${ROBOTNAME}  # Your robot's name
 
-env_variables:
-  GOOGLE_CREDENTIALS: "<Paste your JSON content here>"
-  DATABASE_EXCEL_PATH: "/app/SCADA TestData.xlsx"
-  OPENAI_API_KEY: "<Your OpenAI API Key>"
-  ROBOTNAME: "Royal"
+automatic_scaling:  # Automatic scaling configuration
+  target_cpu_utilization: 0.65  # Target CPU utilization for scaling
+  max_instances: 5  # Maximum number of instances
+  min_instances: 1  # Minimum number of instances
 
-# Optional: Static file handling (CSS, images, etc.)
-handlers:
-- url: /static
-  static_dir: static
+handlers:  # URL routing
+  - url: /static  # Serve static files
+    static_dir: static
 
-# Logs to be captured
-beta_settings:
-  cloud_logging: true
+  - url: /.*
+    script: auto  # Automatically map all requests to the app
+
+instance_class: F2  # Defines the instance class (adjust based on your app's needs)
+
+health_check:  # Health check configuration for the app
+  enable_health_check: True
+  check_interval_sec: 5
+  timeout_sec: 4
+  unhealthy_threshold: 2
+  healthy_threshold: 2
