@@ -1,0 +1,12 @@
+/tests/
+*.pyc
+__pycache__/
+*.pyo
+.git/
+.gitignore
+.env
+*.md
+/docs/
+/examples/
+/TestingFiles/
+/Pics/
