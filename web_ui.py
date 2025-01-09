@@ -3,13 +3,18 @@ from flask_socketio import SocketIO, emit
 from voice_core_v1 import VoiceChatBot
 import json
 import os
-import secrets  # Add this import
+import secrets
 
 app = Flask(__name__)
-# Automatically generate a secret key if not set in environment
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(16)
-socketio = SocketIO(app, cors_allowed_origins="*")
+app.config['DEBUG'] = False
+socketio = SocketIO(app, 
+                   cors_allowed_origins="*",
+                   async_mode='gevent',
+                   logger=True,
+                   engineio_logger=True)
 chatbot = VoiceChatBot()
+
 @app.route('/')
 def index():
     robot_name = os.environ.get('ROBOTNAME', 'Royal')
@@ -36,4 +41,8 @@ def handle_audio_data(data):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    socketio.run(app, 
+                host='0.0.0.0', 
+                port=port,
+                debug=False,
+                use_reloader=False)
