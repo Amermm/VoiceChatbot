@@ -3,12 +3,13 @@ from flask_socketio import SocketIO, emit
 from voice_core_v1 import VoiceChatBot
 import json
 import os
+import secrets  # Add this import
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default_secret_key')
+# Automatically generate a secret key if not set in environment
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(16)
 socketio = SocketIO(app, cors_allowed_origins="*")
 chatbot = VoiceChatBot()
-
 @app.route('/')
 def index():
     robot_name = os.environ.get('ROBOTNAME', 'Royal')
