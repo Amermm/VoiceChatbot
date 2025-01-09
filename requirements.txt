@@ -6,3 +6,5 @@ PyAudio==0.2.11
 pyttsx3==2.90
 openpyxl==3.0.9
 numpy==1.21.4
+Werkzeug==2.0.1
+gunicorn==20.1.0
