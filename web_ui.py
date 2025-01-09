@@ -1,44 +1,34 @@
-from flask import Flask, render_template, jsonify
-from flask_sockets import Sockets
+from flask import Flask, render_template, jsonify, request, Response
+from voice_core_v1 import VoiceChatBot
 import json
 import os
-from voice_core_v1 import VoiceChatBot
-import base64
 
 app = Flask(__name__)
-sockets = Sockets(app)
 chatbot = VoiceChatBot()
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    robot_name = os.environ.get('ROBOTNAME', 'Royal')
+    return render_template('index.html', robot_name=robot_name)
 
-@sockets.route('/audio')
-def audio(ws):
-    """WebSocket endpoint to handle real-time audio streaming."""
-    while not ws.closed:
-        try:
-            message = ws.receive()
-            if not message:
-                continue
-            
-            # Process the audio data received from client
-            audio_data = base64.b64decode(message)
-            transcript = chatbot.process_audio_data(audio_data)
-            
-            if transcript:
-                response = chatbot.get_gpt_response(transcript)
-                ws.send(json.dumps({
-                    "transcript": transcript,
-                    "response": response
-                }))
-        except Exception as e:
-            ws.send(json.dumps({"error": str(e)}))
+@app.route('/start_listening', methods=['POST'])
+def start_listening():
+    chatbot.start_listening()
+    return jsonify({"status": "started"})
+
+@app.route('/stop_listening', methods=['POST'])
+def stop_listening():
+    chatbot.stop_listening()
+    return jsonify({"status": "stopped"})
+
+@app.route('/stream')
+def stream():
+    def generate():
+        for result in chatbot.process_continuous_audio():
+            yield f"data: {json.dumps(result)}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    server = pywsgi.WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
-    server.serve_forever()
-    port = int(os.environ.get('PORT', 5000))
-    server = pywsgi.WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
-    server.serve_forever()
+    app.run(host='0.0.0.0', port=port, debug=True, threaded=True)
