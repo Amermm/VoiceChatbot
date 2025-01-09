@@ -19,7 +19,7 @@ jobs:
       uses: google-github-actions/setup-gcloud@v1
       with:
         project_id: ${{ secrets.GCLOUD_PROJECT }}
-        service_account_key: ${{ secrets.GCLOUD_SERVICE_KEY }}
+        service_account_key: ${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}
 
     # Authenticate Docker with Google Container Registry
     - name: Authenticate Docker
