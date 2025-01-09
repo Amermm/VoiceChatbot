@@ -1,10 +1,10 @@
 name: Deploy to Google App Engine
 
 on:
-  workflow_dispatch: # Manual trigger (to avoid automatic deployments)
+  workflow_dispatch:  # Manual trigger
   push:
     branches:
-      - main
+      - main  # Deploy only on the main branch
 
 jobs:
   deploy:
@@ -15,14 +15,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Step 2: Set up Google Cloud SDK
+    # Step 2: Authenticate with Google Cloud
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
       with:
-        project_id: ${{ secrets.GCLOUD_PROJECT }}  # Google Cloud Project ID
-        service_account_key: ${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}  # Service account key from GitHub Secrets
+        project_id: ${{ secrets.GCLOUD_PROJECT }}
+        service_account_key: ${{ secrets.GCLOUD_DEPLOY_SERVICE_KEY }}
 
-    # Step 3: Deploy to App Engine
+    # Step 3: Deploy the application
     - name: Deploy to App Engine
       run: |
         gcloud app deploy app.yaml --quiet
