@@ -5,6 +5,7 @@ python-engineio==4.3.4
 google-cloud-speech==2.12.0
 openai==0.27.0
 pandas==1.5.3
+portaudio
 PyAudio==0.2.11
 pyttsx3==2.90
 openpyxl==3.0.9
