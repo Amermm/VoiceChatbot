@@ -54,17 +54,19 @@ class VoiceChatBot:
         try:
             audio = speech.RecognitionAudio(content=audio_bytes)
             config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,  # Browser audio encoding
                 language_code="en-US",
+                sample_rate_hertz=16000,  # Explicit sample rate
                 enable_automatic_punctuation=True
             )
-
+    
             response = self.speech_client.recognize(config=config, audio=audio)
             for result in response.results:
                 return result.alternatives[0].transcript
         except Exception as e:
             self.logger.error(f"Speech Recognition Error: {e}")
             return None
+
 
     def get_gpt_response(self, query):
         try:
