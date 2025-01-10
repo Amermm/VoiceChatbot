@@ -13,6 +13,7 @@ import numpy as np
 import pyttsx3
 import base64
 import io
+import tempfile
 
 class VoiceChatBot:
     def __init__(self):
