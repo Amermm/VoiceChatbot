@@ -4,13 +4,13 @@ from voice_core_v1 import VoiceChatBot
 import json
 import os
 import logging
+import base64
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', logger=True)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 chatbot = VoiceChatBot()
 
 @app.route('/')
@@ -21,6 +21,12 @@ def index():
 @socketio.on('connect')
 def handle_connect():
     logger.info('Client connected')
+    chatbot.start_listening()
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    logger.info('Client disconnected')
+    chatbot.stop_listening()
 
 @socketio.on('start_listening')
 def handle_start_listening():
@@ -37,12 +43,15 @@ def handle_stop_listening():
 @socketio.on('audio_data')
 def handle_audio_data(data):
     try:
-        for result in chatbot.process_continuous_audio():
-            if result:
-                logger.info(f'Processing result: {result}')
-                emit('bot_response', result)
+        if isinstance(data, str):
+            audio_bytes = base64.b64decode(data)
+            chatbot.audio_queue.put(audio_bytes)
+            for result in chatbot.process_continuous_audio():
+                if result and 'transcript' in result:
+                    logger.info(f'Got result: {result}')
+                    emit('bot_response', result)
     except Exception as e:
-        logger.error(f'Audio processing error: {str(e)}')
+        logger.error(f'Error: {str(e)}')
         emit('error', {'error': str(e)})
 
 if __name__ == '__main__':
