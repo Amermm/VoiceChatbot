@@ -1,10 +1,9 @@
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
 from voice_core_v1 import VoiceChatBot
-import json
+import base64
 import os
 import logging
-import base64
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -21,26 +20,11 @@ def index():
 @socketio.on('connect')
 def handle_connect():
     logger.info('Client connected')
-    chatbot.start_listening()
 
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info('Client disconnected')
-    chatbot.stop_listening()
 
-@socketio.on('start_listening')
-def handle_start_listening():
-    chatbot.start_listening()
-    emit('listening_status', {'status': 'started'})
-    logger.info('Started listening')
-
-@socketio.on('stop_listening')
-def handle_stop_listening():
-    chatbot.stop_listening()
-    emit('listening_status', {'status': 'stopped'})
-    logger.info('Stopped listening')
-
-@socketio.on('audio_data')
 @socketio.on('audio_data')
 def handle_audio_data(data):
     try:
@@ -52,3 +36,7 @@ def handle_audio_data(data):
     except Exception as e:
         logger.error(f"Error processing audio: {e}")
         emit('error', {'error': str(e)})
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    socketio.run(app, host='0.0.0.0', port=port)
