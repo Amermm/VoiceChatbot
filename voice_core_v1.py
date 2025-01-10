@@ -11,8 +11,8 @@ from datetime import datetime
 import logging
 import numpy as np
 import pyttsx3
-import json
-import tempfile
+import base64
+import io
 
 class VoiceChatBot:
     def __init__(self):
@@ -24,7 +24,7 @@ class VoiceChatBot:
         
         # Audio settings
         self.RATE = 16000
-        self.CHUNK = 1024  # Smaller chunk size for faster processing
+        self.CHUNK = 1024
         self.FORMAT = pyaudio.paInt16
         self.CHANNELS = 1
         
@@ -39,7 +39,6 @@ class VoiceChatBot:
         self.stream = None
 
     def setup_environment(self):
-        """Setup API keys and credentials from environment variables"""
         # Set OpenAI API key
         openai.api_key = os.environ.get('OPENAI_API_KEY')
         
@@ -52,7 +51,6 @@ class VoiceChatBot:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
 
     def _load_excel_data(self):
-        """Load data from Excel file specified in environment variables"""
         try:
             excel_path = os.environ.get('DATABASE_EXCEL_PATH', '/app/SCADA TestData.xlsx')
             df = pd.read_excel(excel_path)
@@ -61,58 +59,30 @@ class VoiceChatBot:
                     df[column] = df[column].fillna(0)
                 else:
                     df[column] = df[column].fillna('')
-            # Pre-process context data
             self.context_data = df.astype(str).to_string(index=False, header=True)
             return df
         except Exception as e:
             self.logger.error(f"Error loading Excel: {e}")
             return pd.DataFrame()
 
-    def audio_callback(self, in_data, frame_count, time_info, status):
-        if self.is_listening:
-            self.audio_queue.put(in_data)
-        return (in_data, pyaudio.paContinue)
-
-    def start_listening(self):
-        self.is_listening = True
-        self.p = pyaudio.PyAudio()
-        self.stream = self.p.open(
-            format=self.FORMAT,
-            channels=self.CHANNELS,
-            rate=self.RATE,
-            input=True,
-            frames_per_buffer=self.CHUNK,
-            stream_callback=self.audio_callback
-        )
-        self.stream.start_stream()
-
-    def stop_listening(self):
-        self.is_listening = False
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-        if self.p:
-            self.p.terminate()
-        self.p = None
-        self.stream = None
-
-    def process_audio_data(self, audio_data):
-        if not audio_data:
-            return None
-        
-        # Convert audio data to wav file
-        temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-        with wave.open(temp_filename, 'wb') as wf:
-            wf.setnchannels(self.CHANNELS)
-            wf.setsampwidth(self.p.get_sample_size(self.FORMAT))
-            wf.setframerate(self.RATE)
-            wf.writeframes(b''.join(audio_data))
-
+    def process_audio_chunk(self, audio_data):
+        """Process base64 encoded audio data."""
         try:
-            with open(temp_filename, 'rb') as f:
-                content = f.read()
+            # Decode base64 audio data
+            audio_bytes = base64.b64decode(audio_data)
+            
+            # Convert to wav format
+            with io.BytesIO() as wav_io:
+                with wave.open(wav_io, 'wb') as wf:
+                    wf.setnchannels(self.CHANNELS)
+                    wf.setsampwidth(2)  # 16-bit audio
+                    wf.setframerate(self.RATE)
+                    wf.writeframes(audio_bytes)
+                wav_data = wav_io.getvalue()
 
-            audio = speech.RecognitionAudio(content=content)
+            # Create the audio content
+            audio = speech.RecognitionAudio(content=wav_data)
+            
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=self.RATE,
@@ -121,16 +91,21 @@ class VoiceChatBot:
                 use_enhanced=True
             )
 
+            # Perform the transcription
             response = self.speech_client.recognize(config=config, audio=audio)
             
             for result in response.results:
-                return result.alternatives[0].transcript
+                transcript = result.alternatives[0].transcript
+                if transcript:
+                    # Get GPT response
+                    gpt_response = self.get_gpt_response(transcript)
+                    return {"transcript": transcript, "response": gpt_response}
 
-        finally:
-            if os.path.exists(temp_filename):
-                os.remove(temp_filename)
+            return None
 
-        return None
+        except Exception as e:
+            self.logger.error(f"Error processing audio chunk: {e}")
+            return {"error": str(e)}
 
     def get_gpt_response(self, query):
         try:
@@ -141,7 +116,7 @@ class VoiceChatBot:
                     {"role": "system", "content": f"Context data:\n{self.context_data}"},
                     {"role": "user", "content": query}
                 ],
-                max_tokens=100,  # Reduced for faster response
+                max_tokens=100,
                 temperature=0
             )
             return response.choices[0].message['content'].strip()
@@ -159,40 +134,6 @@ class VoiceChatBot:
             except Exception as e:
                 self.logger.error(f"TTS Error: {e}")
 
-        # Run TTS in a new thread to avoid blocking
         tts_thread = threading.Thread(target=tts_worker, args=(response,))
         tts_thread.daemon = True
         tts_thread.start()
-
-    def process_continuous_audio(self):
-        audio_data = []
-        silence_threshold = 500
-        silence_frames = 0
-        max_silence_frames = 20
-
-        while self.is_listening:
-            try:
-                if self.audio_queue.qsize() > 0:
-                    data = self.audio_queue.get()
-                    audio_data.append(data)
-                    
-                    # Check for silence
-                    audio_array = np.frombuffer(data, dtype=np.int16)
-                    if np.abs(audio_array).mean() < silence_threshold:
-                        silence_frames += 1
-                    else:
-                        silence_frames = 0
-
-                    if silence_frames >= max_silence_frames and len(audio_data) > 0:
-                        transcript = self.process_audio_data(audio_data)
-                        if transcript:
-                            response = self.get_gpt_response(transcript)
-                            yield {"transcript": transcript, "response": response}
-                            self.speak_response(response)
-                        audio_data = []
-                        silence_frames = 0
-                else:
-                    time.sleep(0.1)
-            except Exception as e:
-                self.logger.error(f"Error in continuous processing: {e}")
-                yield {"error": str(e)}
