@@ -90,26 +90,23 @@
         }
 
         // Initialize audio recording
-        async function initializeAudio() {
+       async function initializeAudio() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
+                const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
+                        sampleRate: 16000, // Ensure supported sample rate
+                        channelCount: 1,  // Mono channel
                         echoCancellation: true,
                         noiseSuppression: true,
-                        sampleRate: 16000,
-                        channelCount: 1
-                    }
+                    },
                 });
-
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm',
-                    audioBitsPerSecond: 16000
+        
+                const mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus',
                 });
-
+        
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
-                        audioChunks.push(event.data);
-                        // Convert to base64 and send to server
                         const reader = new FileReader();
                         reader.onloadend = () => {
                             const base64data = reader.result.split(',')[1];
@@ -118,18 +115,13 @@
                         reader.readAsDataURL(event.data);
                     }
                 };
-
-                mediaRecorder.onstop = () => {
-                    audioChunks = [];
-                };
-
-                return true;
+        
+                mediaRecorder.start(1000); // Send audio chunks every second
             } catch (error) {
-                console.error('Error accessing microphone:', error);
-                updateStatus('Error accessing microphone: ' + error.message);
-                return false;
+                console.error('Error initializing audio:', error);
             }
         }
+
 
         function addMessage(text, isUser = false) {
             const messageDiv = document.createElement('div');
