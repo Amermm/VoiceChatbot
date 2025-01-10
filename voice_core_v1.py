@@ -21,7 +21,7 @@ class VoiceChatBot:
         # Load configuration from environment variables
         self.config = {
             'OPENAI_API_KEY': os.environ.get('OPENAI_API_KEY'),
-            'DATABASE_EXCEL_PATH': os.environ.get('DATABASE_EXCEL_PATH', '/app/SCADA TestData.xlsx'),
+            'DATABASE_EXCEL_PATH': os.environ.get('DATABASE_EXCEL_PATH', 'SCADA TestData.xlsx'),
             'GOOGLE_CREDENTIALS': os.environ.get('GOOGLE_CREDENTIALS'),
             'ROBOTNAME': os.environ.get('ROBOTNAME', 'Royal')
         }
@@ -63,7 +63,6 @@ class VoiceChatBot:
                     df[column] = df[column].fillna(0)
                 else:
                     df[column] = df[column].fillna('')
-            # Pre-process context data
             self.context_data = df.astype(str).to_string(index=False, header=True)
             return df
         except Exception as e:
@@ -102,7 +101,6 @@ class VoiceChatBot:
         if not audio_data:
             return None
         
-        # Convert audio data to wav file
         temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         with wave.open(temp_filename, 'wb') as wf:
             wf.setnchannels(self.CHANNELS)
@@ -152,7 +150,6 @@ class VoiceChatBot:
             return "Sorry, I couldn't process your request."
 
     def speak_response(self, response):
-        """Convert text to speech using pyttsx3."""
         def tts_worker(response_text):
             try:
                 engine = pyttsx3.init()
@@ -165,41 +162,34 @@ class VoiceChatBot:
         tts_thread.daemon = True
         tts_thread.start()
 
-   def process_continuous_audio(self):
-        try:
-            audio = np.frombuffer(data, dtype=np.int16)
-            
-            # Convert audio to wav format
-            temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-            with wave.open(temp_filename, 'wb') as wf:
-                wf.setnchannels(self.CHANNELS)
-                wf.setsampwidth(2)  # 16-bit
-                wf.setframerate(self.RATE)
-                wf.writeframes(audio.tobytes())
+    def process_continuous_audio(self):
+        audio_data = []
+        silence_threshold = 500
+        silence_frames = 0
+        max_silence_frames = 20
 
-            # Process with Google Speech
-            with open(temp_filename, 'rb') as audio_file:
-                content = audio_file.read()
+        while self.is_listening:
+            try:
+                if self.audio_queue.qsize() > 0:
+                    data = self.audio_queue.get()
+                    audio_data.append(data)
+                    
+                    audio_array = np.frombuffer(data, dtype=np.int16)
+                    if np.abs(audio_array).mean() < silence_threshold:
+                        silence_frames += 1
+                    else:
+                        silence_frames = 0
 
-            audio = speech.RecognitionAudio(content=content)
-            config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=self.RATE,
-                language_code="en-US",
-                enable_automatic_punctuation=True
-            )
-
-            response = self.speech_client.recognize(config=config, audio=audio)
-            
-            if response.results:
-                transcript = response.results[0].alternatives[0].transcript
-                gpt_response = self.get_gpt_response(transcript)
-                self.speak_response(gpt_response)
-                yield {"transcript": transcript, "response": gpt_response}
-            
-            if os.path.exists(temp_filename):
-                os.remove(temp_filename)
-                
-        except Exception as e:
-            self.logger.error(f"Error processing audio: {str(e)}")
-            yield {"error": str(e)}
+                    if silence_frames >= max_silence_frames and len(audio_data) > 0:
+                        transcript = self.process_audio_data(audio_data)
+                        if transcript:
+                            response = self.get_gpt_response(transcript)
+                            yield {"transcript": transcript, "response": response}
+                            self.speak_response(response)
+                        audio_data = []
+                        silence_frames = 0
+                else:
+                    time.sleep(0.1)
+            except Exception as e:
+                self.logger.error(f"Error in continuous processing: {e}")
+                yield {"error": str(e)}
