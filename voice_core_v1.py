@@ -26,15 +26,19 @@ class VoiceChatBot:
         self.df = self._load_excel_data()
         self.speech_client = speech.SpeechClient()
 
-    def setup_environment(self):
+     def setup_environment(self):
         openai.api_key = self.config['OPENAI_API_KEY']
         
         # Setup Google Cloud credentials
         if self.config['GOOGLE_CREDENTIALS']:
-            fd, path = tempfile.mkstemp()
-            with os.fdopen(fd, 'w') as temp:
-                temp.write(self.config['GOOGLE_CREDENTIALS'])
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+            try:
+                fd, path = tempfile.mkstemp()
+                with os.fdopen(fd, 'w') as temp:
+                    temp.write(self.config['GOOGLE_CREDENTIALS'])
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+                self.logger.info("Google credentials successfully loaded")
+            except Exception as e:
+                self.logger.error(f"Failed to load Google credentials: {e}")
 
     def _load_excel_data(self):
         try:
