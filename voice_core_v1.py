@@ -17,7 +17,7 @@ import tempfile
 
 class VoiceChatBot:
     def __init__(self):
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.DEBUG)
         self.logger = logging.getLogger(__name__)
         
         # Setup environment
@@ -38,6 +38,9 @@ class VoiceChatBot:
         self.audio_queue = queue.Queue()
         self.p = None
         self.stream = None
+
+        # Create temp directory for audio files
+        self.temp_dir = tempfile.mkdtemp()
 
     def setup_environment(self):
         # Set OpenAI API key
@@ -69,21 +72,27 @@ class VoiceChatBot:
     def process_audio_chunk(self, audio_data):
         """Process base64 encoded audio data."""
         try:
-            # Decode base64 audio data
+            self.logger.debug("Starting audio processing")
+            
+            # Decode base64 string
             audio_bytes = base64.b64decode(audio_data)
             
-            # Convert to wav format
-            with io.BytesIO() as wav_io:
-                with wave.open(wav_io, 'wb') as wf:
-                    wf.setnchannels(self.CHANNELS)
-                    wf.setsampwidth(2)  # 16-bit audio
-                    wf.setframerate(self.RATE)
-                    wf.writeframes(audio_bytes)
-                wav_data = wav_io.getvalue()
-
-            # Create the audio content
-            audio = speech.RecognitionAudio(content=wav_data)
+            # Save as temporary WAV file
+            temp_wav = os.path.join(self.temp_dir, f'temp_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav')
             
+            with wave.open(temp_wav, 'wb') as wf:
+                wf.setnchannels(self.CHANNELS)
+                wf.setsampwidth(2)  # 16-bit audio
+                wf.setframerate(self.RATE)
+                wf.writeframes(audio_bytes)
+            
+            self.logger.debug("Created temporary WAV file")
+
+            # Read the file for Google Speech-to-Text
+            with open(temp_wav, 'rb') as audio_file:
+                content = audio_file.read()
+
+            audio = speech.RecognitionAudio(content=content)
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=self.RATE,
@@ -92,28 +101,41 @@ class VoiceChatBot:
                 use_enhanced=True
             )
 
-            # Perform the transcription
+            self.logger.debug("Sending to Google Speech-to-Text")
             response = self.speech_client.recognize(config=config, audio=audio)
-            
-            for result in response.results:
-                transcript = result.alternatives[0].transcript
-                if transcript:
-                    # Get GPT response
-                    gpt_response = self.get_gpt_response(transcript)
-                    return {"transcript": transcript, "response": gpt_response}
+            self.logger.debug(f"Received response: {response}")
 
+            # Clean up temporary file
+            try:
+                os.remove(temp_wav)
+            except:
+                pass
+
+            if response.results:
+                transcript = response.results[0].alternatives[0].transcript
+                self.logger.info(f"Transcribed text: {transcript}")
+                
+                # Get GPT response
+                gpt_response = self.get_gpt_response(transcript)
+                return {
+                    "transcript": transcript,
+                    "response": gpt_response
+                }
+                
+            self.logger.debug("No speech recognized")
             return None
 
         except Exception as e:
-            self.logger.error(f"Error processing audio chunk: {e}")
+            self.logger.error(f"Error processing audio chunk: {str(e)}", exc_info=True)
             return {"error": str(e)}
 
     def get_gpt_response(self, query):
         try:
+            robot_name = os.environ.get('ROBOTNAME', 'Royal')
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": f"You are {os.environ.get('ROBOTNAME', 'Royal')}, a helpful data assistant. Provide concise responses."},
+                    {"role": "system", "content": f"You are {robot_name}, a helpful data assistant. Provide concise responses."},
                     {"role": "system", "content": f"Context data:\n{self.context_data}"},
                     {"role": "user", "content": query}
                 ],
@@ -122,7 +144,7 @@ class VoiceChatBot:
             )
             return response.choices[0].message['content'].strip()
         except Exception as e:
-            self.logger.error(f"GPT Error: {e}")
+            self.logger.error(f"GPT Error: {str(e)}")
             return "Sorry, I couldn't process your request."
 
     def speak_response(self, response):
@@ -133,8 +155,16 @@ class VoiceChatBot:
                 engine.say(response_text)
                 engine.runAndWait()
             except Exception as e:
-                self.logger.error(f"TTS Error: {e}")
+                self.logger.error(f"TTS Error: {str(e)}")
 
         tts_thread = threading.Thread(target=tts_worker, args=(response,))
         tts_thread.daemon = True
         tts_thread.start()
+
+    def __del__(self):
+        """Cleanup temp directory on shutdown."""
+        try:
+            import shutil
+            shutil.rmtree(self.temp_dir)
+        except:
+            pass
