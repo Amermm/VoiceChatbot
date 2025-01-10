@@ -9,9 +9,20 @@
 </head>
 <body>
     <div class="container">
-        <!-- Robot side remains the same -->
         <div class="robot-side">
-            <!-- ... previous robot HTML ... -->
+            <div class="robot-face">
+                <img src="{{ url_for('static', filename='animations/Chatbotframe.png') }}" alt="Robot" class="robot-image">
+                <div class="robot-screen">
+                    <div class="screen-bars">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+                <div class="robot-title">{{ robot_name }}</div>
+            </div>
         </div>
 
         <div class="chat-container">
@@ -21,7 +32,14 @@
             </div>
             <div class="chat-box" id="chatBox">
                 <div class="voice-animation" id="voiceAnimation" style="display: none;">
-                    <!-- ... voice animation HTML ... -->
+                    <div class="voice-bars">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                    <span class="listening-text">Listening...</span>
                 </div>
             </div>
             <div class="controls">
@@ -40,9 +58,10 @@
 
         // Initialize socket connection
         function initializeSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const host = window.location.host;
-            socket = io();
+            socket = io({
+                transports: ['websocket'],
+                upgrade: false
+            });
 
             socket.on('connect', () => {
                 console.log('Connected to server');
@@ -50,6 +69,7 @@
             });
 
             socket.on('bot_response', (data) => {
+                console.log('Received response:', data);
                 if (data.transcript) {
                     addMessage(data.transcript, true);
                 }
@@ -60,15 +80,31 @@
 
             socket.on('error', (error) => {
                 console.error('Error:', error);
-                updateStatus('Error: ' + error.message);
+                updateStatus('Error: ' + error.error);
+            });
+
+            socket.on('listening_status', (data) => {
+                console.log('Listening status:', data);
+                updateStatus(data.status === 'started' ? 'Listening...' : 'Stopped listening');
             });
         }
 
         // Initialize audio recording
         async function initializeAudio() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 16000,
+                        channelCount: 1
+                    }
+                });
+
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm',
+                    audioBitsPerSecond: 16000
+                });
 
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
@@ -151,6 +187,23 @@
                 stopListening();
             }
             updateStatus('Chat stopped.');
+        });
+
+        document.getElementById('clearChatButton').addEventListener('click', () => {
+            const voiceAnimation = document.getElementById('voiceAnimation');
+            chatBox.innerHTML = '';
+            chatBox.appendChild(voiceAnimation);
+        });
+
+        document.getElementById('hideViewButton').addEventListener('click', () => {
+            const chatBox = document.getElementById('chatBox');
+            if (chatBox.style.display === 'none') {
+                chatBox.style.display = 'block';
+                hideViewButton.textContent = 'Hide View';
+            } else {
+                chatBox.style.display = 'none';
+                hideViewButton.textContent = 'Show View';
+            }
         });
 
         // Initialize socket connection when page loads
