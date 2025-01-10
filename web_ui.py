@@ -41,19 +41,14 @@ def handle_stop_listening():
     logger.info('Stopped listening')
 
 @socketio.on('audio_data')
+@socketio.on('audio_data')
 def handle_audio_data(data):
     try:
-        if isinstance(data, str):
-            audio_bytes = base64.b64decode(data)
-            chatbot.audio_queue.put(audio_bytes)
-            for result in chatbot.process_continuous_audio():
-                if result and 'transcript' in result:
-                    logger.info(f'Got result: {result}')
-                    emit('bot_response', result)
+        audio_bytes = base64.b64decode(data)
+        transcript = chatbot.process_audio_data(audio_bytes)
+        if transcript:
+            response = chatbot.get_gpt_response(transcript)
+            emit('bot_response', {'transcript': transcript, 'response': response})
     except Exception as e:
-        logger.error(f'Error: {str(e)}')
+        logger.error(f"Error processing audio: {e}")
         emit('error', {'error': str(e)})
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    socketio.run(app, host='0.0.0.0', port=port)
