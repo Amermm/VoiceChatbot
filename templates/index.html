@@ -53,7 +53,6 @@
     <script>
         let socket;
         let mediaRecorder;
-        let audioChunks = [];
         let isListening = false;
 
         // Initialize socket connection
@@ -90,21 +89,21 @@
         }
 
         // Initialize audio recording
-       async function initializeAudio() {
+        async function initializeAudio() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
-                        sampleRate: 16000, // Ensure supported sample rate
-                        channelCount: 1,  // Mono channel
+                        sampleRate: 16000,
+                        channelCount: 1,
                         echoCancellation: true,
                         noiseSuppression: true,
                     },
                 });
-        
-                const mediaRecorder = new MediaRecorder(stream, {
+
+                mediaRecorder = new MediaRecorder(stream, {
                     mimeType: 'audio/webm;codecs=opus',
                 });
-        
+
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
                         const reader = new FileReader();
@@ -115,13 +114,18 @@
                         reader.readAsDataURL(event.data);
                     }
                 };
-        
-                mediaRecorder.start(1000); // Send audio chunks every second
+
+                mediaRecorder.onstop = () => {
+                    console.log('Recording stopped');
+                };
+
+                return true;
             } catch (error) {
-                console.error('Error initializing audio:', error);
+                console.error('Error accessing microphone:', error);
+                updateStatus('Error accessing microphone: ' + error.message);
+                return false;
             }
         }
-
 
         function addMessage(text, isUser = false) {
             const messageDiv = document.createElement('div');
@@ -139,7 +143,7 @@
             if (!socket) {
                 initializeSocket();
             }
-            
+
             if (!mediaRecorder) {
                 const initialized = await initializeAudio();
                 if (!initialized) return;
@@ -152,7 +156,6 @@
             updateStatus('Listening to your questions...');
 
             mediaRecorder.start(1000); // Send data every second
-            socket.emit('start_listening');
         }
 
         function stopListening() {
@@ -164,7 +167,6 @@
             document.getElementById('askButton').textContent = 'Ask Me';
             document.getElementById('voiceAnimation').style.display = 'none';
             updateStatus('Chat ended');
-            socket.emit('stop_listening');
         }
 
         // Event Listeners
