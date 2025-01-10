@@ -3,9 +3,14 @@ from flask_socketio import SocketIO, emit
 from voice_core_v1 import VoiceChatBot
 import json
 import os
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+app.config['SECRET_KEY'] = os.urandom(24)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', logger=True)
 chatbot = VoiceChatBot()
 
 @app.route('/')
@@ -15,29 +20,29 @@ def index():
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Client disconnected')
+    logger.info('Client connected')
 
 @socketio.on('start_listening')
 def handle_start_listening():
     chatbot.start_listening()
     emit('listening_status', {'status': 'started'})
+    logger.info('Started listening')
 
 @socketio.on('stop_listening')
 def handle_stop_listening():
     chatbot.stop_listening()
     emit('listening_status', {'status': 'stopped'})
+    logger.info('Stopped listening')
 
 @socketio.on('audio_data')
 def handle_audio_data(data):
     try:
-        results = chatbot.process_continuous_audio()
-        for result in results:
-            emit('bot_response', result)
+        for result in chatbot.process_continuous_audio():
+            if result:
+                logger.info(f'Processing result: {result}')
+                emit('bot_response', result)
     except Exception as e:
+        logger.error(f'Audio processing error: {str(e)}')
         emit('error', {'error': str(e)})
 
 if __name__ == '__main__':
