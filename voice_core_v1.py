@@ -33,21 +33,23 @@ class VoiceChatBot:
 
     def process_audio_data(self, audio_bytes):
         try:
-            self.logger.info("Processing audio data")
+            self.logger.info("Starting Google Speech-to-Text processing")
             audio = speech.RecognitionAudio(content=audio_bytes)
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-                sample_rate_hertz=48000,  # Match browser's default encoding
+                sample_rate_hertz=48000,
                 language_code="en-US",
                 enable_automatic_punctuation=True,
             )
-
+    
             response = self.speech_client.recognize(config=config, audio=audio)
+            self.logger.info("Google Speech-to-Text response received")
             for result in response.results:
                 return result.alternatives[0].transcript
         except Exception as e:
             self.logger.error(f"Speech Recognition Error: {e}")
             return None
+
 
     def get_gpt_response(self, query):
         try:
