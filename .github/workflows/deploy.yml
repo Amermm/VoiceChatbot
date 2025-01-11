@@ -1,18 +1,44 @@
-name: Deploy to Fly.io
+name: Deploy to GCP Cloud Run
 
 on:
   push:
     branches:
-      - main
+      - main  # Deploy only when changes are pushed to the main branch
 
 jobs:
   deploy:
+    name: Deploy to Cloud Run
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Install Flyctl
-        run: curl -L https://fly.io/install.sh | sh
-      - name: Deploy to Fly.io
-        run: flyctl deploy
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Google Cloud CLI
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      # Step 3: Build and push the Docker image to Google Container Registry (GCR)
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/voicechatbot"
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      # Step 4: Deploy to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy voicechatbot \
+            --image "gcr.io/${{ secrets.GCP_PROJECT_ID }}/voicechatbot" \
+            --platform managed \
+            --region europe-west2 \
+            --allow-unauthenticated \
+            --set-env-vars GOOGLE_CREDENTIALS=${{ secrets.GOOGLE_CREDENTIALS }} \
+            --set-env-vars OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+            --set-env-vars DATABASE_EXCEL_PATH=${{ secrets.DATABASE_EXCEL_PATH }} \
+            --set-env-vars ROBOTNAME=${{ secrets.ROBOTNAME }}
