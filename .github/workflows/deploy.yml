@@ -23,7 +23,7 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
-      # Step 3: Build and push the Docker image to Google Container Registry (GCR)
+      # Step 3: Build and Push Docker Image
       - name: Build and Push Docker Image
         run: |
           IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/voicechatbot"
