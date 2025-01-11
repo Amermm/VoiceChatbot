@@ -1,0 +1,20 @@
+# Ignore testing and auxiliary files
+Pics/
+TestingFiles/
+
+# Ignore unnecessary configs
+Aptfile
+Procfile
+build.sh
+render.yaml
+runtime.txt
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Git files
+.git/
+.gitignore
