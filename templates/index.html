@@ -50,158 +50,74 @@
         </div>
     </div>
 
-    <script>
-        let socket;
-        let mediaRecorder;
-        let isListening = false;
+<script>
+    let socket;
+    let mediaRecorder;
 
-        // Initialize socket connection
-        function initializeSocket() {
-            socket = io({
-                transports: ['websocket'],
-                upgrade: false
+    function initializeSocket() {
+        socket = io();
+
+        socket.on('connection_status', (data) => {
+            console.log('Connection status:', data.status);
+        });
+
+        socket.on('bot_response', (data) => {
+            console.log('Transcript:', data.transcript);
+            console.log('Bot response:', data.response);
+        });
+
+        socket.on('error', (error) => {
+            console.error('Error:', error.error);
+        });
+    }
+
+    async function initializeAudio() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    sampleRate: 48000,
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                },
             });
 
-            socket.on('connect', () => {
-                console.log('Connected to server');
-                updateStatus('Connected to server');
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'audio/webm;codecs=opus',
             });
 
-            socket.on('bot_response', (data) => {
-                console.log('Received response:', data);
-                if (data.transcript) {
-                    addMessage(data.transcript, true);
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64data = reader.result.split(',')[1];
+                        socket.emit('audio_data', base64data);
+                    };
+                    reader.readAsDataURL(event.data);
                 }
-                if (data.response) {
-                    addMessage(data.response, false);
-                }
-            });
+            };
 
-            socket.on('error', (error) => {
-                console.error('Error:', error);
-                updateStatus('Error: ' + error.error);
-            });
-
-            socket.on('listening_status', (data) => {
-                console.log('Listening status:', data);
-                updateStatus(data.status === 'started' ? 'Listening...' : 'Stopped listening');
-            });
+            console.log("Mic access initialized successfully");
+        } catch (error) {
+            console.error('Mic access error:', error.message);
         }
+    }
 
-        // Initialize audio recording
-        async function initializeAudio() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        sampleRate: 16000,
-                        channelCount: 1,
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                    },
-                });
+    document.getElementById('askButton').addEventListener('click', () => {
+        if (!mediaRecorder) initializeAudio();
+        mediaRecorder.start(1000); // Send audio every second
+    });
 
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus',
-                });
-
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                            const base64data = reader.result.split(',')[1];
-                            socket.emit('audio_data', base64data);
-                        };
-                        reader.readAsDataURL(event.data);
-                    }
-                };
-
-                mediaRecorder.onstop = () => {
-                    console.log('Recording stopped');
-                };
-
-                return true;
-            } catch (error) {
-                console.error('Error accessing microphone:', error);
-                updateStatus('Error accessing microphone: ' + error.message);
-                return false;
-            }
+    document.getElementById('endButton').addEventListener('click', () => {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
         }
+        console.log("Stopped listening");
+    });
 
-        function addMessage(text, isUser = false) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = isUser ? 'message user-message' : 'message bot-message';
-            messageDiv.textContent = text;
-            chatBox.appendChild(messageDiv);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        function updateStatus(message) {
-            document.getElementById('status').textContent = message;
-        }
-
-        async function startListening() {
-            if (!socket) {
-                initializeSocket();
-            }
-
-            if (!mediaRecorder) {
-                const initialized = await initializeAudio();
-                if (!initialized) return;
-            }
-
-            isListening = true;
-            document.getElementById('askButton').disabled = true;
-            document.getElementById('askButton').textContent = 'Listening...';
-            document.getElementById('voiceAnimation').style.display = 'flex';
-            updateStatus('Listening to your questions...');
-
-            mediaRecorder.start(1000); // Send data every second
-        }
-
-        function stopListening() {
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-            }
-            isListening = false;
-            document.getElementById('askButton').disabled = false;
-            document.getElementById('askButton').textContent = 'Ask Me';
-            document.getElementById('voiceAnimation').style.display = 'none';
-            updateStatus('Chat ended');
-        }
-
-        // Event Listeners
-        document.getElementById('askButton').addEventListener('click', () => {
-            if (!isListening) {
-                startListening();
-            }
-        });
-
-        document.getElementById('endButton').addEventListener('click', () => {
-            if (isListening) {
-                stopListening();
-            }
-            updateStatus('Chat stopped.');
-        });
-
-        document.getElementById('clearChatButton').addEventListener('click', () => {
-            const voiceAnimation = document.getElementById('voiceAnimation');
-            chatBox.innerHTML = '';
-            chatBox.appendChild(voiceAnimation);
-        });
-
-        document.getElementById('hideViewButton').addEventListener('click', () => {
-            const chatBox = document.getElementById('chatBox');
-            if (chatBox.style.display === 'none') {
-                chatBox.style.display = 'block';
-                hideViewButton.textContent = 'Hide View';
-            } else {
-                chatBox.style.display = 'none';
-                hideViewButton.textContent = 'Show View';
-            }
-        });
-
-        // Initialize socket connection when page loads
+    window.onload = () => {
         initializeSocket();
-    </script>
+    };
+</script>
 </body>
 </html>
