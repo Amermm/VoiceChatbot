@@ -1,33 +1,40 @@
-from flask import Flask, render_template
-from flask_socketio import SocketIO, emit
-from voice_core_v1 import VoiceChatBot
+import os
 import logging
+from google.cloud import secretmanager
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+class VoiceChatBot:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
 
-app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
-chatbot = VoiceChatBot()
+        # Load variables
+        self.config = {
+            "DATABASE_EXCEL_PATH": os.getenv("DATABASE_EXCEL_PATH", "default.xlsx"),
+            "ROBOTNAME": os.getenv("ROBOTNAME", "DefaultRobot"),
+            "GOOGLE_CREDENTIALS": None,
+            "OPENAI_API_KEY": None,
+        }
 
-@app.route('/')
-def index():
-    return render_template('index.html', robot_name=chatbot.config['ROBOTNAME'])
+        # Load secrets from GCP Secret Manager
+        self.load_secrets()
 
-@socketio.on('connect')
-def handle_connect():
-    logger.info("Client connected")
-    emit('connection_status', {'status': 'connected'})
+    def load_secrets(self):
+        """Load secrets from GCP Secret Manager."""
+        client = secretmanager.SecretManagerServiceClient()
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-@socketio.on('audio_data')
-def handle_audio_data(data):
-    try:
-        logger.info("Received audio data")
-        audio_bytes = base64.b64decode(data)
-        transcript = chatbot.process_audio_data(audio_bytes)
-        if transcript:
-            response = chatbot.get_gpt_response(transcript)
-            emit('bot_response', {'transcript': transcript, 'response': response})
-    except Exception as e:
-        logger.error(f"Error processing audio data: {e}")
-        emit('error', {'error': str(e)})
+        self.config["GOOGLE_CREDENTIALS"] = self.get_secret(client, project_id, "GOOGLE_CREDENTIALS")
+        self.config["OPENAI_API_KEY"] = self.get_secret(client, project_id, "OPENAI_API_KEY")
+
+        # Save Google credentials to a temporary file
+        credentials_path = "/tmp/google_credentials.json"
+        with open(credentials_path, "w") as file:
+            file.write(self.config["GOOGLE_CREDENTIALS"])
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        self.logger.info("Google credentials loaded successfully.")
+
+    def get_secret(self, client, project_id, secret_name):
+        """Fetch a secret from GCP Secret Manager."""
+        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": secret_path})
+        return response.payload.data.decode("UTF-8")
