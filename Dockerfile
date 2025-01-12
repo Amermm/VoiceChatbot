@@ -1,17 +1,23 @@
-# Use the official Python image
+# Use the official Python 3.9 slim image for a smaller base image
 FROM python:3.9-slim
 
-# Set the working directory
+# Set the working directory in the container
 WORKDIR /app
 
-# Copy application files
-COPY . .
+# Install system dependencies required for Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Copy application files to the container
+COPY . /app
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose the port Flask will run on
 EXPOSE 8080
 
-# Command to start the Flask app
-CMD ["gunicorn", "-k", "geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "-w", "1", "web_ui:app", "-b", "0.0.0.0:8080", "--timeout", "120"]
+# Set the default command to run the application
+CMD ["gunicorn", "-k", "geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "-w", "1", "web_ui:app", "-b", "0.0.0.0:8080"]
