@@ -1,7 +1,6 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 from voice_core_v1 import VoiceChatBot
-import base64
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -13,17 +12,12 @@ chatbot = VoiceChatBot()
 
 @app.route('/')
 def index():
-    robot_name = "Royal"  # Replace with dynamic environment variable if needed
-    return render_template('index.html', robot_name=robot_name)
+    return render_template('index.html', robot_name=chatbot.config['ROBOTNAME'])
 
 @socketio.on('connect')
 def handle_connect():
     logger.info("Client connected")
     emit('connection_status', {'status': 'connected'})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    logger.info("Client disconnected")
 
 @socketio.on('audio_data')
 def handle_audio_data(data):
@@ -37,8 +31,3 @@ def handle_audio_data(data):
     except Exception as e:
         logger.error(f"Error processing audio data: {e}")
         emit('error', {'error': str(e)})
-
-if __name__ == '__main__':
-    import os
-    port = int(os.environ.get('PORT', 8080))
-    socketio.run(app, host='0.0.0.0', port=port)
