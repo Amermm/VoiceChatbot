@@ -26,7 +26,8 @@ jobs:
       # Step 3: Build and Push Docker Image
       - name: Build and Push Docker Image
         run: |
-          IMAGE="us-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/voicechatbot-repo/voicechatbot"
+          IMAGE="europe-west2-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/voicechatbot-rep-v2/voicechatbot"
+
           docker build -t $IMAGE .
           docker push $IMAGE
 
