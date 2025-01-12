@@ -1,40 +1,46 @@
-import os
+from flask import Flask, render_template, request, jsonify
+from flask_socketio import SocketIO, emit
+from voice_core_v1 import VoiceChatBot
 import logging
-from google.cloud import secretmanager
 
-class VoiceChatBot:
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
+# Initialize Flask app and SocketIO
+app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-        # Load variables
-        self.config = {
-            "DATABASE_EXCEL_PATH": os.getenv("DATABASE_EXCEL_PATH", "default.xlsx"),
-            "ROBOTNAME": os.getenv("ROBOTNAME", "DefaultRobot"),
-            "GOOGLE_CREDENTIALS": None,
-            "OPENAI_API_KEY": None,
-        }
+# Initialize VoiceChatBot
+chatbot = VoiceChatBot()
 
-        # Load secrets from GCP Secret Manager
-        self.load_secrets()
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-    def load_secrets(self):
-        """Load secrets from GCP Secret Manager."""
-        client = secretmanager.SecretManagerServiceClient()
-        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+@app.route("/")
+def index():
+    """Render the homepage."""
+    return render_template("index.html")
 
-        self.config["GOOGLE_CREDENTIALS"] = self.get_secret(client, project_id, "GOOGLE_CREDENTIALS")
-        self.config["OPENAI_API_KEY"] = self.get_secret(client, project_id, "OPENAI_API_KEY")
+@socketio.on("connect")
+def handle_connect():
+    """Handle client connection."""
+    logger.info("Client connected.")
+    emit("message", {"data": "Connected to VoiceChatBot!"})
 
-        # Save Google credentials to a temporary file
-        credentials_path = "/tmp/google_credentials.json"
-        with open(credentials_path, "w") as file:
-            file.write(self.config["GOOGLE_CREDENTIALS"])
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-        self.logger.info("Google credentials loaded successfully.")
+@socketio.on("disconnect")
+def handle_disconnect():
+    """Handle client disconnection."""
+    logger.info("Client disconnected.")
 
-    def get_secret(self, client, project_id, secret_name):
-        """Fetch a secret from GCP Secret Manager."""
-        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-        response = client.access_secret_version(request={"name": secret_path})
-        return response.payload.data.decode("UTF-8")
+@socketio.on("audio")
+def handle_audio(data):
+    """Handle audio data sent from the client."""
+    logger.info("Audio data received.")
+    try:
+        response = chatbot.process_audio(data)
+        emit("response", {"data": response})
+    except Exception as e:
+        logger.error(f"Error processing audio: {e}")
+        emit("error", {"data": "Failed to process audio."})
+
+if __name__ == "__main__":
+    # Run the app with SocketIO
+    socketio.run(app, host="0.0.0.0", port=8080)
